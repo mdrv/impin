@@ -738,6 +738,16 @@ impl Render for Pin {
                 styled(img(Arc::<Path>::from(self.source.as_path()))).into_any_element()
             }
             PinImage::Decoded(render) => styled(img(render.clone())).into_any_element(),
+            PinImage::Missing => div()
+                .size_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(hsla(220.0, 0.2, 0.10, 0.5))
+                .text_size(px(12.0))
+                .text_color(hsla(0.0, 0.0, 1.0, 0.55))
+                .child("missing")
+                .into_any_element(),
         };
         div()
             .id(("pin", self.id))

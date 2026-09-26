@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=impin
+GenericName=Image Pinner
+Comment=Pin a reference image above your workspace
+Exec=impin add %f
+TryExec=impin
+Icon=image-x-generic
+Terminal=false
+Categories=Graphics;Utility;
+MimeType=image/png;image/jpeg;image/webp;image/gif;image/bmp;image/avif;image/jxl;image/svg+xml;
+# File-manager "Open With" only — keep it out of the app grid.
+NoDisplay=true

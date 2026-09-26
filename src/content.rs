@@ -15,6 +15,8 @@ pub enum PinImage {
     Asset,
     /// Pre-decoded BGRA frame(s) (AVIF/JXL first frame; animation is v0.2).
     Decoded(Arc<RenderImage>),
+    /// Source vanished: dim placeholder keeps the slot (spec).
+    Missing,
 }
 
 /// A loadable pin source: what to render plus the image's natural size
@@ -80,8 +82,8 @@ fn rgba8(
         .ok_or_else(|| anyhow::anyhow!("decoder size mismatch ({w}x{h})"))
 }
 
-/// AVIF: decoded in-process (kornelski's avif-decode over rav1d, pure Rust);
-/// first frame only in v0.1.
+/// AVIF: decoded in-process (zenavif over rav1d-safe, pure Rust — no C
+/// toolchain in the build); first frame only in v0.1.
 fn avif(path: &Path) -> anyhow::Result<(PinImage, (u32, u32))> {
     let bytes = std::fs::read(path)?;
     let buffer = zenavif::decode(&bytes)?;

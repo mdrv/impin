@@ -5,6 +5,7 @@
 
 use std::path::PathBuf;
 
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 /// One pinned image, as persisted. Geometry is in output-local pixels.
@@ -64,10 +65,19 @@ impl Store {
 
     pub fn load(&self) -> anyhow::Result<Vec<PinRecord>> {
         match std::fs::read_to_string(&self.path) {
-            Ok(text) => Ok(toml::from_str::<PinFile>(&text)?.pins),
+            // A corrupt file is an ERROR, not an empty store: the daemon
+            // moves it aside so no save can clobber it.
+            Ok(text) => toml::from_str::<PinFile>(&text)
+                .map(|file| file.pins)
+                .context(format!("parsing {}", self.path.display())),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
             Err(e) => Err(anyhow::anyhow!("reading {}: {e}", self.path.display())),
         }
+    }
+
+    /// The state file path (for moving a corrupt file aside).
+    pub fn path(&self) -> &std::path::Path {
+        &self.path
     }
 
     pub fn save(&self, pins: &[PinRecord]) -> anyhow::Result<()> {

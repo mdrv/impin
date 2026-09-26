@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.93" # zenavif (pure-Rust AVIF) requires 1.93; CI/toolchains are latest-stable anyway
 description = "Wayland layer-shell overlay pinning reference images: zoom, pan, opacity, rounded corners"
+license = "MIT"
+repository = "https://github.com/mdrv/impin"
 
 [dependencies]
 gpui = { package = "mdrv-gpui-ce", git = "https://github.com/mdrv/gpui-ce", tag = "mdrv-gpui-0.0.260925.5" }

@@ -11,8 +11,8 @@ use std::time::Duration;
 use futures::StreamExt;
 use futures::channel::mpsc::{UnboundedSender, unbounded};
 use gpui::{
-    App, AsyncApp, DisplayId, Pixels, PlatformDisplay, Point, QuitMode, WindowHandle, point, px,
-    size,
+    App, AsyncApp, DisplayId, Pixels, PlatformDisplay, Point, QuitMode, Size, WindowHandle, point,
+    px, size,
 };
 use gpui_platform::application;
 use log::warn;
@@ -47,6 +47,9 @@ struct PinEntry {
 
 struct PinsGlobal {
     entries: Vec<PinEntry>,
+    /// Records whose output was absent at boot (spec: they stay hidden
+    /// until it reappears; toggle/show re-checks).
+    pending: Vec<PinRecord>,
     store: Store,
     /// Sender handed to every pin window (persist/lifetime events).
     events: UnboundedSender<PinEvent>,
@@ -86,7 +89,17 @@ pub fn run() -> anyhow::Result<()> {
             std::thread::spawn(move || accept_loop(listener, tx));
 
             let store = Store::new();
-            let records = store.load().unwrap_or_default();
+            let records = match store.load() {
+                Ok(records) => records,
+                Err(err) => {
+                    // Never clobber a corrupt state file: move it aside so
+                    // the next save starts clean and nothing is lost.
+                    warn!("state file unreadable: {err:#}");
+                    let path = store.path().to_path_buf();
+                    std::fs::rename(&path, path.with_extension("toml.corrupt")).ok();
+                    Vec::new()
+                }
+            };
             let fallback = primary_display(cx).map(|d| d.id());
             // The notice pill: created hidden, shown while zero pins exist. It
             // also guarantees a window always exists (Explicit quit mode).
@@ -97,9 +110,18 @@ pub fn run() -> anyhow::Result<()> {
             // so spawned pins can send immediately.
             let (event_tx, mut event_rx) = unbounded::<PinEvent>();
             let mons = monitors().unwrap_or_default();
-            let mut entries = Vec::new();
-            for (id, mut record) in records.into_iter().enumerate() {
-                let id = id as u64;
+            let (mut entries, mut pending) = (Vec::new(), Vec::new());
+            let mut id_counter = 0u64;
+            for mut record in records {
+                let id = id_counter;
+                id_counter += 1;
+                // Missing output at boot: the pin waits (hidden) until its
+                // output reappears — re-checked on toggle/show (spec).
+                if !mons.iter().any(|m| m.name == record.output) {
+                    pending.push(record);
+                    continue;
+                }
+                let (pin_image, natural) = load_content(&record);
                 let mon = mons.iter().find(|m| m.name == record.output);
                 // Spawn clamped: every pin must be fully on-screen (spec).
                 if let Some(mon) = mon {
@@ -108,15 +130,6 @@ pub fn run() -> anyhow::Result<()> {
                 let output_origin = mon
                     .map(|m| point(px(m.x), px(m.y)))
                     .unwrap_or(point(px(0.), px(0.)));
-                // Decode (or measure) content; a vanished file still pins at its
-                // stored size (missing-file placeholder is M3).
-                let loaded = content::load(&record.source).ok();
-                let natural = loaded
-                    .as_ref()
-                    .map_or(size(px(record.w as f32), px(record.h as f32)), |l| {
-                        size(px(l.natural.0 as f32), px(l.natural.1 as f32))
-                    });
-                let pin_image = loaded.map(|l| l.render).unwrap_or(PinImage::Asset);
                 let display_id = display_for_name(cx, &record.output).or(fallback);
                 match pin::spawn(
                     cx,
@@ -137,10 +150,15 @@ pub fn run() -> anyhow::Result<()> {
                     Err(err) => warn!("spawning pin {}: {err:#}", record.source.display()),
                 }
             }
-            log::info!("restored {} pin(s)", entries.len());
+            log::info!(
+                "restored {} pin(s), {} waiting for output",
+                entries.len(),
+                pending.len()
+            );
             let next_id = entries.len() as u64;
             cx.set_global(PinsGlobal {
                 entries,
+                pending,
                 store,
                 events: event_tx,
                 notice: notice_window,
@@ -173,6 +191,9 @@ pub fn run() -> anyhow::Result<()> {
                             let toggle = matches!(msg, Ipc::Toggle);
                             let forced = matches!(msg, Ipc::Show);
                             cx.update(|app| {
+                                // Outputs may have reappeared: spawn pins
+                                // that were waiting for theirs (spec).
+                                spawn_pending(app);
                                 let mons = monitors().unwrap_or_default();
                                 let mut updates = Vec::new();
                                 {
@@ -257,17 +278,115 @@ fn save_all(app: &mut App) -> anyhow::Result<()> {
 /// Mirror entries -> records (z = sibling order) and write atomically.
 fn persist(global: &PinsGlobal) -> anyhow::Result<()> {
     let mut records: Vec<PinRecord> = global.entries.iter().map(|e| e.record.clone()).collect();
+    records.extend(global.pending.iter().cloned());
     for (i, record) in records.iter_mut().enumerate() {
         record.z = i as u32;
     }
     global.store.save(&records)
 }
 
+/// Decode (or measure) a record's content; a vanished file renders the dim
+/// missing placeholder at its stored size (spec).
+fn load_content(record: &PinRecord) -> (PinImage, Size<Pixels>) {
+    match content::load(&record.source) {
+        Ok(loaded) => (
+            loaded.render,
+            size(px(loaded.natural.0 as f32), px(loaded.natural.1 as f32)),
+        ),
+        Err(err) => {
+            warn!("pin source {}: {err:#}", record.source.display());
+            (
+                PinImage::Missing,
+                size(px(record.w as f32), px(record.h as f32)),
+            )
+        }
+    }
+}
+
+/// Spawn a window for `record` (clamped to its output when known), register
+/// the entry, persist. `visible: false` adopts the current hide mode.
+fn spawn_entry(
+    app: &mut App,
+    record: &mut PinRecord,
+    pin_image: PinImage,
+    natural: Size<Pixels>,
+    visible: bool,
+) -> anyhow::Result<()> {
+    let mon = monitors()
+        .unwrap_or_default()
+        .into_iter()
+        .find(|m| m.name == record.output);
+    // Every pin must be fully on-screen (spec).
+    if let Some(mon) = &mon {
+        clamp_to_mon(record, mon);
+    }
+    let (id, fallback, events) = {
+        let global = app.global::<PinsGlobal>();
+        (global.next_id, global.fallback, global.events.clone())
+    };
+    let display_id = display_for_name(app, &record.output).or(fallback);
+    let output_origin = mon
+        .map(|m| point(px(m.x), px(m.y)))
+        .unwrap_or(point(px(0.), px(0.)));
+    let handle = pin::spawn(
+        app,
+        id,
+        record,
+        pin_image,
+        natural,
+        output_origin,
+        display_id,
+        events,
+    )?;
+    if !visible {
+        let _ = handle.update(app, |_, window, _| window.set_visible(false));
+    }
+    let mut global = app.global_mut::<PinsGlobal>();
+    global.next_id += 1;
+    global.entries.push(PinEntry {
+        id,
+        handle,
+        record: record.clone(),
+        visible,
+    });
+    persist(&global)?;
+    Ok(())
+}
+
+/// Spawn waiting pins whose output has appeared (spec: missing-output pins
+/// stay hidden until it reappears; toggle/show re-checks).
+fn spawn_pending(app: &mut App) {
+    let (waiting, shown) = {
+        let mons = monitors().unwrap_or_default();
+        let global = app.global_mut::<PinsGlobal>();
+        let (mut waiting, mut remaining) = (Vec::new(), Vec::new());
+        for record in global.pending.drain(..) {
+            if mons.iter().any(|m| m.name == record.output) {
+                waiting.push(record);
+            } else {
+                remaining.push(record);
+            }
+        }
+        global.pending = remaining;
+        (waiting, global.shown)
+    };
+    for mut record in waiting {
+        let (pin_image, natural) = load_content(&record);
+        if let Err(err) = spawn_entry(app, &mut record, pin_image, natural, shown) {
+            warn!("spawning pin {}: {err:#}", record.source.display());
+        }
+    }
+    sync_notice(app);
+}
+
 /// Notice visibility tracks emptiness: shown iff no pins exist.
 fn sync_notice(app: &mut App) {
     let (notice, show) = {
         let global = app.global_mut::<PinsGlobal>();
-        (global.notice, global.shown && global.entries.is_empty())
+        (
+            global.notice,
+            global.shown && global.entries.is_empty() && global.pending.is_empty(),
+        )
     };
     if let Some(handle) = notice {
         let _ = handle.update(app, |_, window, _| window.set_visible(show));
@@ -371,33 +490,8 @@ fn add_pin(app: &mut App, path: PathBuf) -> anyhow::Result<String> {
     };
     clamp_to_mon(&mut record, &mon);
 
-    let (id, fallback, events) = {
-        let global = app.global::<PinsGlobal>();
-        (global.next_id, global.fallback, global.events.clone())
-    };
-    let display_id = display_for_name(app, &record.output).or(fallback);
-    let output_origin = point(px(mon.x), px(mon.y));
     let natural = size(px(dw as f32), px(dh as f32));
-    let handle = pin::spawn(
-        app,
-        id,
-        &record,
-        loaded.render,
-        natural,
-        output_origin,
-        display_id,
-        events,
-    )?;
-
-    let global = app.global_mut::<PinsGlobal>();
-    global.next_id += 1;
-    global.entries.push(PinEntry {
-        id,
-        handle,
-        record: record.clone(),
-        visible: true,
-    });
-    persist(&global)?;
+    spawn_entry(app, &mut record, loaded.render, natural, true)?;
     sync_notice(app); // pins exist again -> hide the pill
     Ok(format!(
         "pinned {} ({}x{})",

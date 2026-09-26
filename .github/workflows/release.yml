@@ -1,0 +1,80 @@
+# Release pipeline: build x86_64 + aarch64 Linux binaries for a `v*` tag
+# and attach tarballs to a GitHub Release. x86_64 builds inside an Arch
+# container so the binary matches the glibc of the alarm pacman repo's
+# consumers — NOT musl: the gpui fork's wayland/wgpu stack on musl is
+# uncharted. aarch64 builds on a plain ARM runner (Docker Hub pulls fail
+# on GH ARM runners); Ubuntu 24.04's older glibc keeps it Arch-compatible.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            container: archlinux:base-devel
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            # No container here: GH's ARM runners persistently fail to pull
+            # from Docker Hub (21 retries). Plain Ubuntu works; a binary
+            # linked against Ubuntu 24.04's older glibc runs fine on Arch.
+            container: ""
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container != '' && matrix.container || null }}
+    env:
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - name: Install toolchain (Arch container, x86_64)
+        if: ${{ matrix.arch == 'x86_64' }}
+        run: |
+          pacman -Syu --noconfirm git rustup fontconfig pkgconf libxcb libxkbcommon libxkbcommon-x11 wayland
+          rustup default stable
+      - name: Install toolchain (Ubuntu runner, aarch64)
+        if: ${{ matrix.arch == 'aarch64' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libfontconfig1-dev
+          rustup update stable || (curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable)
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - uses: actions/checkout@v7
+      - name: Build
+        run: cargo build --release
+      - name: Package
+        run: |
+          mkdir -p pkg/impin out
+          cp target/release/impin pkg/impin/
+          cp README.md LICENSE pkg/impin/
+          cp dist/impin.desktop pkg/impin/
+          # Owner-chosen naming: impin-v0.1.0-aarch64-unknown-linux-gnu.tar.gz
+          tar -czf "out/impin-${GITHUB_REF_NAME}-${ARCH}-unknown-linux-gnu.tar.gz" -C pkg impin
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux-${{ matrix.arch }}
+          path: out/*
+
+  release:
+    if: ${{ !cancelled() && !failure() && startsWith(github.ref, 'refs/tags/') }}
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          merge-multiple: true
+          path: dist
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS.txt
+      - name: Create release
+        run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes dist/*
+        env:
+          GH_TOKEN: ${{ github.token }}
