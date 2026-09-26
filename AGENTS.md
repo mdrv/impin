@@ -24,6 +24,12 @@ gpui_platform = { package = "mdrv-gpui-platform", git = "https://github.com/mdrv
 arrayref = { git = "https://github.com/mdrv/gpui-ce" }
 ```
 
+- **Pin `image` at 0.25.10**: git-dep consumers resolve their own lockfile,
+  and newer semver-compatible `image` releases break the fork
+  (`into_raw_bgra` gone). After first resolve:
+  `cargo update -p image --precise 0.25.10`. (Fork should switch to an
+  `=` req — flagged.)
+
 - Docs BEFORE writing gpui code: `/x/m/v270/gpui-ce/00-overview.md`, then
   `10-practical-api.md` (§6 layer-shell), `20-dragging-panels.md`,
   `30-resizing-panels.md`, `40-animation-freeze.md` (§28: timed show/hide,

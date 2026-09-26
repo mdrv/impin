@@ -1,0 +1,20 @@
+[package]
+name = "impin"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Wayland layer-shell overlay pinning reference images: zoom, pan, opacity, rounded corners"
+
+[dependencies]
+gpui = { package = "mdrv-gpui-ce", git = "https://github.com/mdrv/gpui-ce", tag = "mdrv-gpui-0.0.260925.4" }
+gpui_platform = { package = "mdrv-gpui-platform", git = "https://github.com/mdrv/gpui-ce", tag = "mdrv-gpui-0.0.260925.4", features = [
+	"wayland",
+] }
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+env_logger = "0.11"
+futures = "0.3"
+log = "0.4"
+
+[patch.crates-io]
+arrayref = { git = "https://github.com/mdrv/gpui-ce" } # yanked/broken on crates.io (via tiny-skia)
