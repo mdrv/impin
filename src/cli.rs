@@ -1,3 +1,6 @@
+use std::io::{Read, Write};
+use std::net::Shutdown;
+use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 
 use clap::{CommandFactory, Parser, Subcommand};
@@ -58,15 +61,15 @@ pub fn run() -> anyhow::Result<()> {
             if !foreground {
                 log::debug!("--foreground not passed; foreground is the only mode");
             }
-            unimplemented_verb("daemon start")
+            crate::daemon::run()
         }
-        Command::Toggle => unimplemented_verb("toggle"),
-        Command::Show => unimplemented_verb("show"),
-        Command::Hide => unimplemented_verb("hide"),
-        Command::Clipboard => unimplemented_verb("clipboard"),
-        Command::Add { file } => unimplemented_verb(&format!("add {}", file.display())),
-        Command::Stop => unimplemented_verb("stop"),
-        Command::Status => unimplemented_verb("status"),
+        Command::Toggle => send_verb("toggle"),
+        Command::Show => send_verb("show"),
+        Command::Hide => send_verb("hide"),
+        Command::Clipboard => send_verb("clipboard"),
+        Command::Add { file } => send_verb(&format!("add {}", file.display())),
+        Command::Stop => send_verb("stop"),
+        Command::Status => send_verb("status"),
     }
 }
 
@@ -75,11 +78,29 @@ pub fn socket_path() -> PathBuf {
     PathBuf::from(runtime).join("impin.sock")
 }
 
-fn unimplemented_verb(verb: &str) -> anyhow::Result<()> {
-    anyhow::bail!(
-        "{verb}: daemon IPC lands in M1 (socket {})",
-        socket_path().display()
-    )
+fn send_verb(verb: &str) -> anyhow::Result<()> {
+    let mut stream = UnixStream::connect(socket_path()).map_err(|_| {
+        anyhow::anyhow!(
+            "impin not running (socket {}); start it with: impin daemon start",
+            socket_path().display()
+        )
+    })?;
+    stream.write_all(verb.as_bytes())?;
+    stream.shutdown(Shutdown::Write)?;
+    let mut reply = String::new();
+    stream.read_to_string(&mut reply)?;
+    let reply = reply.trim();
+    if let Some(rest) = reply.strip_prefix("ok") {
+        let rest = rest.trim();
+        if !rest.is_empty() {
+            println!("{rest}");
+        }
+        Ok(())
+    } else if let Some(rest) = reply.strip_prefix("err") {
+        anyhow::bail!("{}", rest.trim())
+    } else {
+        anyhow::bail!("malformed reply: {reply:?}")
+    }
 }
 
 #[cfg(test)]

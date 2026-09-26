@@ -1389,7 +1389,7 @@ dependencies = [
  "cc",
  "memchr",
  "rustc_version",
- "toml",
+ "toml 1.1.6+spec-1.1.0",
  "vswhom",
  "winreg",
 ]
@@ -2360,9 +2360,13 @@ dependencies = [
  "clap",
  "env_logger",
  "futures",
+ "image",
  "log",
  "mdrv-gpui-ce",
  "mdrv-gpui-platform",
+ "serde",
+ "serde_json",
+ "toml 0.9.12+spec-1.1.0",
 ]
 
 [[package]]
@@ -2828,7 +2832,7 @@ dependencies = [
 [[package]]
 name = "mdrv-gpui-apple"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.4#cb20092559930255b49aab674478f340684dec4f"
+source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
 dependencies = [
  "anyhow",
  "block",
@@ -2854,7 +2858,7 @@ dependencies = [
 [[package]]
 name = "mdrv-gpui-ce"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.4#cb20092559930255b49aab674478f340684dec4f"
+source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
 dependencies = [
  "accesskit",
  "anyhow",
@@ -2925,7 +2929,7 @@ dependencies = [
 [[package]]
 name = "mdrv-gpui-collections"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.4#cb20092559930255b49aab674478f340684dec4f"
+source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
 dependencies = [
  "indexmap",
  "mdrv-gpui-util",
@@ -2935,7 +2939,7 @@ dependencies = [
 [[package]]
 name = "mdrv-gpui-derive-refineable"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.4#cb20092559930255b49aab674478f340684dec4f"
+source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2945,7 +2949,7 @@ dependencies = [
 [[package]]
 name = "mdrv-gpui-linux"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.4#cb20092559930255b49aab674478f340684dec4f"
+source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
 dependencies = [
  "accesskit",
  "accesskit_unix",
@@ -2992,7 +2996,7 @@ dependencies = [
 [[package]]
 name = "mdrv-gpui-macos"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.4#cb20092559930255b49aab674478f340684dec4f"
+source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
 dependencies = [
  "accesskit",
  "accesskit_macos",
@@ -3040,7 +3044,7 @@ dependencies = [
 [[package]]
 name = "mdrv-gpui-macros"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.4#cb20092559930255b49aab674478f340684dec4f"
+source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -3051,7 +3055,7 @@ dependencies = [
 [[package]]
 name = "mdrv-gpui-media"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.4#cb20092559930255b49aab674478f340684dec4f"
+source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
 dependencies = [
  "anyhow",
  "bindgen",
@@ -3065,7 +3069,7 @@ dependencies = [
 [[package]]
 name = "mdrv-gpui-platform"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.4#cb20092559930255b49aab674478f340684dec4f"
+source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
 dependencies = [
  "console_error_panic_hook",
  "mdrv-gpui-apple",
@@ -3079,7 +3083,7 @@ dependencies = [
 [[package]]
 name = "mdrv-gpui-refineable"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.4#cb20092559930255b49aab674478f340684dec4f"
+source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
 dependencies = [
  "mdrv-gpui-derive-refineable",
 ]
@@ -3087,7 +3091,7 @@ dependencies = [
 [[package]]
 name = "mdrv-gpui-render"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.4#cb20092559930255b49aab674478f340684dec4f"
+source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
 dependencies = [
  "mdrv-gpui-ce",
  "naga 24.0.0",
@@ -3099,7 +3103,7 @@ dependencies = [
 [[package]]
 name = "mdrv-gpui-scheduler"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.4#cb20092559930255b49aab674478f340684dec4f"
+source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
 dependencies = [
  "async-task",
  "backtrace",
@@ -3114,7 +3118,7 @@ dependencies = [
 [[package]]
 name = "mdrv-gpui-shared-string"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.4#cb20092559930255b49aab674478f340684dec4f"
+source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
 dependencies = [
  "schemars",
  "serde",
@@ -3124,7 +3128,7 @@ dependencies = [
 [[package]]
 name = "mdrv-gpui-sum-tree"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.4#cb20092559930255b49aab674478f340684dec4f"
+source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
 dependencies = [
  "heapless",
  "log",
@@ -3135,7 +3139,7 @@ dependencies = [
 [[package]]
 name = "mdrv-gpui-util"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.4#cb20092559930255b49aab674478f340684dec4f"
+source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
 dependencies = [
  "anyhow",
  "log",
@@ -3145,7 +3149,7 @@ dependencies = [
 [[package]]
 name = "mdrv-gpui-web"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.4#cb20092559930255b49aab674478f340684dec4f"
+source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
 dependencies = [
  "anyhow",
  "console_error_panic_hook",
@@ -3168,7 +3172,7 @@ dependencies = [
 [[package]]
 name = "mdrv-gpui-wgpu"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.4#cb20092559930255b49aab674478f340684dec4f"
+source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
 dependencies = [
  "anyhow",
  "core-foundation",
@@ -3206,7 +3210,7 @@ dependencies = [
 [[package]]
 name = "mdrv-gpui-windows"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.4#cb20092559930255b49aab674478f340684dec4f"
+source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
 dependencies = [
  "accesskit",
  "accesskit_windows",
@@ -5501,6 +5505,21 @@ dependencies = [
 
 [[package]]
 name = "toml"
+version = "0.9.12+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf92845e79fc2e2def6a5d828f0801e29a2f8acc037becc5ab08595c7d5e9863"
+dependencies = [
+ "indexmap",
+ "serde_core",
+ "serde_spanned",
+ "toml_datetime 0.7.5+spec-1.1.0",
+ "toml_parser",
+ "toml_writer",
+ "winnow 0.7.15",
+]
+
+[[package]]
+name = "toml"
 version = "1.1.6+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "920602543f0911ab71da12c50d59701da54c196d1a2bf5cb4b75667f137a406a"
@@ -5508,10 +5527,19 @@ dependencies = [
  "indexmap",
  "serde_core",
  "serde_spanned",
- "toml_datetime",
+ "toml_datetime 1.1.1+spec-1.1.0",
  "toml_parser",
  "toml_writer",
  "winnow 1.0.4",
+]
+
+[[package]]
+name = "toml_datetime"
+version = "0.7.5+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92e1cfed4a3038bc5a127e35a2d360f145e1f4b971b551a2ba5fd7aedf7e1347"
+dependencies = [
+ "serde_core",
 ]
 
 [[package]]
@@ -5530,7 +5558,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1340ea94a5856333492c9064b02c778b191dd2c853778d9609debdcdfea3a614"
 dependencies = [
  "indexmap",
- "toml_datetime",
+ "toml_datetime 1.1.1+spec-1.1.0",
  "toml_parser",
  "winnow 1.0.4",
 ]
