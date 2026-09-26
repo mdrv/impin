@@ -19,6 +19,7 @@ use gpui::{
 };
 use log::debug;
 
+use crate::content::PinImage;
 use crate::state::PinRecord;
 
 /// Smallest allowed pin size (edge-drag resize clamps here); reference
@@ -207,6 +208,8 @@ pub struct Pin {
     /// Keyboard focus node — keys work after a click (OnDemand surface).
     focus: FocusHandle,
     source: PathBuf,
+    /// How the image is rendered (asset pipeline vs pre-decoded).
+    image: PinImage,
     output: String,
     /// Surface offset from the output's top-left == (top, left) margins.
     pos: Point<Pixels>,
@@ -234,6 +237,7 @@ pub fn spawn(
     cx: &mut App,
     id: u64,
     record: &PinRecord,
+    image: PinImage,
     natural: Size<Pixels>,
     output_origin: Point<Pixels>,
     display_id: Option<DisplayId>,
@@ -264,8 +268,20 @@ pub fn spawn(
         ..Default::default()
     };
     let output = record.output.clone();
+    let image = image.clone();
     cx.open_window(options, |_, cx| {
-        cx.new(|cx| Pin::new(id, record, natural, output_origin, output, events, cx))
+        cx.new(|cx| {
+            Pin::new(
+                id,
+                record,
+                image,
+                natural,
+                output_origin,
+                output,
+                events,
+                cx,
+            )
+        })
     })
 }
 
@@ -273,6 +289,7 @@ impl Pin {
     fn new(
         id: u64,
         record: &PinRecord,
+        image: PinImage,
         natural: Size<Pixels>,
         output_origin: Point<Pixels>,
         output: String,
@@ -286,6 +303,7 @@ impl Pin {
             events,
             focus: cx.focus_handle(),
             source: record.source.clone(),
+            image,
             output,
             pos,
             size: win_size,
@@ -319,21 +337,25 @@ impl Pin {
             .clamp(ZOOM_MIN, 1.0)
     }
 
-    /// Gapless: when the image is larger than the pin it must cover the
-    /// viewport (pan clamped to the overhang); smaller images stay centered.
+    /// Gapless, per axis: an image axis larger than the pin is clamped to
+    /// its overhang (no background shows); a smaller axis centers. (A shared
+    /// branch would clamp the non-overflowing axis against min > max.)
     fn clamp_pan(&mut self) {
         let w = f32::from(self.size.width);
         let h = f32::from(self.size.height);
         let dw = f32::from(self.natural.width) * self.zoom;
         let dh = f32::from(self.natural.height) * self.zoom;
-        self.pan = if dw > w || dh > h {
-            point(
-                px(f32::from(self.pan.x).clamp(w - dw, 0.0)),
-                px(f32::from(self.pan.y).clamp(h - dh, 0.0)),
-            )
+        let x = if dw > w {
+            f32::from(self.pan.x).clamp(w - dw, 0.0)
         } else {
-            point(px((w - dw) / 2.0), px((h - dh) / 2.0))
+            (w - dw) / 2.0
         };
+        let y = if dh > h {
+            f32::from(self.pan.y).clamp(h - dh, 0.0)
+        } else {
+            (h - dh) / 2.0
+        };
+        self.pan = point(px(x), px(y));
     }
 
     /// Zoom keeping `anchor` (surface-local) fixed on the same image point.
@@ -620,6 +642,8 @@ impl Pin {
                 if size.width != self.size.width || size.height != self.size.height {
                     self.size = size;
                     self.pos = pos;
+                    // Keep the image gapless as the pin shrinks under it.
+                    self.clamp_pan();
                     cx.notify(); // render applies resize (+ margin for L/T)
                 } else if pos != self.pos {
                     self.pos = pos; // min-clamp shift without a size change
@@ -696,6 +720,25 @@ impl Render for Pin {
             f32::from(self.natural.width) * self.zoom,
             f32::from(self.natural.height) * self.zoom,
         );
+        let styled = |el: gpui::Img| {
+            el.absolute()
+                .left(self.pan.x)
+                .top(self.pan.y)
+                .w(px(img_w))
+                .h(px(img_h))
+                // The parent's overflow_hidden does not clip children to the
+                // rounded corners; round the image itself to match.
+                .rounded(px(self.radius))
+                .object_fit(ObjectFit::Contain)
+        };
+        // The parent's overflow_hidden does not clip children to the rounded
+        // corners; the image is rounded itself above.
+        let image = match &self.image {
+            PinImage::Asset => {
+                styled(img(Arc::<Path>::from(self.source.as_path()))).into_any_element()
+            }
+            PinImage::Decoded(render) => styled(img(render.clone())).into_any_element(),
+        };
         div()
             .id(("pin", self.id))
             .size_full()
@@ -715,18 +758,7 @@ impl Render for Pin {
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_up))
             .on_mouse_up(MouseButton::Middle, cx.listener(Self::on_up))
             .on_scroll_wheel(cx.listener(Self::on_scroll))
-            // The parent's overflow_hidden does not clip children to the
-            // rounded corners; round the image itself to match.
-            .child(
-                img(Arc::<Path>::from(self.source.as_path()))
-                    .absolute()
-                    .left(self.pan.x)
-                    .top(self.pan.y)
-                    .w(px(img_w))
-                    .h(px(img_h))
-                    .rounded(px(self.radius))
-                    .object_fit(ObjectFit::Contain),
-            )
+            .child(image)
             .child(self.render_edge(Edge::Left, cx))
             .child(self.render_edge(Edge::Right, cx))
             .child(self.render_edge(Edge::Top, cx))

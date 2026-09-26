@@ -3,7 +3,7 @@
 
 use std::io::{Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 use std::rc::Rc;
 use std::time::Duration;
@@ -11,12 +11,15 @@ use std::time::Duration;
 use futures::StreamExt;
 use futures::channel::mpsc::{UnboundedSender, unbounded};
 use gpui::{
-    App, AsyncApp, DisplayId, Pixels, PlatformDisplay, Point, WindowHandle, point, px, size,
+    App, AsyncApp, DisplayId, Pixels, PlatformDisplay, Point, QuitMode, WindowHandle, point, px,
+    size,
 };
 use gpui_platform::application;
 use log::warn;
 
 use crate::cli::socket_path;
+use crate::content::{self, PinImage};
+use crate::notice::{self, Notice};
 use crate::pin::{self, PinEvent};
 use crate::state::{PinRecord, Store};
 
@@ -47,6 +50,9 @@ struct PinsGlobal {
     store: Store,
     /// Sender handed to every pin window (persist/lifetime events).
     events: UnboundedSender<PinEvent>,
+    /// The "No pinned image" pill; visibility tracks emptiness. Keeping a
+    /// window alive also means the process never loses its last window.
+    notice: Option<WindowHandle<Notice>>,
     fallback: Option<DisplayId>,
     next_id: u64,
 }
@@ -69,144 +75,161 @@ pub fn run() -> anyhow::Result<()> {
     let listener = UnixListener::bind(&sock)?;
     let (tx, mut rx) = unbounded::<Ipc>();
 
-    application().run(move |cx: &mut App| {
-        std::thread::spawn(move || accept_loop(listener, tx));
+    // Quit only on `impin stop`: deleting the last pin must leave a live
+    // daemon (the notice pill keeps a window alive meanwhile).
+    application()
+        .with_quit_mode(QuitMode::Explicit)
+        .run(move |cx: &mut App| {
+            std::thread::spawn(move || accept_loop(listener, tx));
 
-        let store = Store::new();
-        let records = store.load().unwrap_or_default();
-        let fallback = primary_display(cx).map(|d| d.id());
-        // Pins -> daemon events (persist/lifetime); created before restore
-        // so spawned pins can send immediately.
-        let (event_tx, mut event_rx) = unbounded::<PinEvent>();
-        let mons = monitors().unwrap_or_default();
-        let mut entries = Vec::new();
-        for (id, mut record) in records.into_iter().enumerate() {
-            let id = id as u64;
-            let mon = mons.iter().find(|m| m.name == record.output);
-            // Spawn clamped: every pin must be fully on-screen (spec).
-            if let Some(mon) = mon {
-                clamp_to_mon(&mut record, mon);
-            }
-            let output_origin = mon
-                .map(|m| point(px(m.x), px(m.y)))
-                .unwrap_or(point(px(0.), px(0.)));
-            // Natural size feeds zoom math; a vanished file still pins at
-            // its stored size (missing-file placeholder is M3).
-            let natural = image_dims(&record.source)
-                .map_or(size(px(record.w as f32), px(record.h as f32)), |(w, h)| {
-                    size(px(w as f32), px(h as f32))
-                });
-            let display_id = display_for_name(cx, &record.output).or(fallback);
-            match pin::spawn(
-                cx,
-                id,
-                &record,
-                natural,
-                output_origin,
-                display_id,
-                event_tx.clone(),
-            ) {
-                Ok(handle) => entries.push(PinEntry {
+            let store = Store::new();
+            let records = store.load().unwrap_or_default();
+            let fallback = primary_display(cx).map(|d| d.id());
+            // The notice pill: created hidden, shown while zero pins exist. It
+            // also guarantees a window always exists (Explicit quit mode).
+            let notice_window = notice::spawn(cx, fallback)
+                .map_err(|err| warn!("notice window: {err:#}"))
+                .ok();
+            // Pins -> daemon events (persist/lifetime); created before restore
+            // so spawned pins can send immediately.
+            let (event_tx, mut event_rx) = unbounded::<PinEvent>();
+            let mons = monitors().unwrap_or_default();
+            let mut entries = Vec::new();
+            for (id, mut record) in records.into_iter().enumerate() {
+                let id = id as u64;
+                let mon = mons.iter().find(|m| m.name == record.output);
+                // Spawn clamped: every pin must be fully on-screen (spec).
+                if let Some(mon) = mon {
+                    clamp_to_mon(&mut record, mon);
+                }
+                let output_origin = mon
+                    .map(|m| point(px(m.x), px(m.y)))
+                    .unwrap_or(point(px(0.), px(0.)));
+                // Decode (or measure) content; a vanished file still pins at its
+                // stored size (missing-file placeholder is M3).
+                let loaded = content::load(&record.source).ok();
+                let natural = loaded
+                    .as_ref()
+                    .map_or(size(px(record.w as f32), px(record.h as f32)), |l| {
+                        size(px(l.natural.0 as f32), px(l.natural.1 as f32))
+                    });
+                let pin_image = loaded.map(|l| l.render).unwrap_or(PinImage::Asset);
+                let display_id = display_for_name(cx, &record.output).or(fallback);
+                match pin::spawn(
+                    cx,
                     id,
-                    handle,
-                    record,
-                    visible: true,
-                }),
-                Err(err) => warn!("spawning pin {}: {err:#}", record.source.display()),
-            }
-        }
-        log::info!("restored {} pin(s)", entries.len());
-        let next_id = entries.len() as u64;
-        cx.set_global(PinsGlobal {
-            entries,
-            store,
-            events: event_tx,
-            fallback,
-            next_id,
-        });
-
-        // Window events -> persistence / lifetime.
-        cx.spawn(async move |cx: &mut AsyncApp| {
-            while let Some(ev) = event_rx.next().await {
-                cx.update(|app| handle_pin_event(app, ev));
-            }
-        })
-        .detach();
-
-        // Socket thread -> this task (fork §16.1: never block inside spawn).
-        cx.spawn(async move |cx: &mut AsyncApp| {
-            while let Some(msg) = rx.next().await {
-                match msg {
-                    Ipc::Stop => {
-                        if let Err(err) = cx.update(save_all) {
-                            warn!("saving pins: {err:#}");
-                        }
-                        cx.update(|app| app.quit());
-                        break;
-                    }
-                    Ipc::Toggle | Ipc::Show | Ipc::Hide => {
-                        let toggle = matches!(msg, Ipc::Toggle);
-                        let forced = matches!(msg, Ipc::Show);
-                        cx.update(|app| {
-                            let mons = monitors().unwrap_or_default();
-                            let mut updates = Vec::new();
-                            {
-                                let global = app.global_mut::<PinsGlobal>();
-                                for entry in &mut global.entries {
-                                    let target = if toggle { !entry.visible } else { forced };
-                                    if target == entry.visible {
-                                        continue;
-                                    }
-                                    entry.visible = target;
-                                    // Toggle-on re-check: every pin must be
-                                    // fully on-screen (covers resolution/
-                                    // output changes while hidden).
-                                    let mut geom = None;
-                                    if target {
-                                        if let Some(mon) =
-                                            mons.iter().find(|m| m.name == entry.record.output)
-                                        {
-                                            let mut rec = entry.record.clone();
-                                            clamp_to_mon(&mut rec, mon);
-                                            if rec != entry.record {
-                                                entry.record = rec.clone();
-                                                geom = Some(rec);
-                                            }
-                                        }
-                                    }
-                                    updates.push((entry.handle, target, geom));
-                                }
-                            }
-                            let mut dirty = false;
-                            for (handle, target, geom) in updates {
-                                if geom.is_some() {
-                                    dirty = true;
-                                }
-                                let _ = handle.update(app, |pin, window, cx| {
-                                    window.set_visible(target);
-                                    if let Some((x, y, w, h)) = geom.map(|r| (r.x, r.y, r.w, r.h)) {
-                                        pin.apply_geometry(x, y, w, h, cx);
-                                    }
-                                });
-                            }
-                            if dirty {
-                                if let Err(err) = persist(app.global_mut::<PinsGlobal>()) {
-                                    warn!("saving pins: {err:#}");
-                                }
-                            }
-                        });
-                    }
-                    Ipc::Add { path, resp } => {
-                        let _ = resp.send(cx.update(|app| add_pin(app, path)));
-                    }
-                    Ipc::Clipboard { resp } => {
-                        let _ = resp.send(cx.update(|app| add_clipboard(app)));
-                    }
+                    &record,
+                    pin_image,
+                    natural,
+                    output_origin,
+                    display_id,
+                    event_tx.clone(),
+                ) {
+                    Ok(handle) => entries.push(PinEntry {
+                        id,
+                        handle,
+                        record,
+                        visible: true,
+                    }),
+                    Err(err) => warn!("spawning pin {}: {err:#}", record.source.display()),
                 }
             }
-        })
-        .detach();
-    });
+            log::info!("restored {} pin(s)", entries.len());
+            let next_id = entries.len() as u64;
+            cx.set_global(PinsGlobal {
+                entries,
+                store,
+                events: event_tx,
+                notice: notice_window,
+                fallback,
+                next_id,
+            });
+            sync_notice(cx);
+
+            // Window events -> persistence / lifetime.
+            cx.spawn(async move |cx: &mut AsyncApp| {
+                while let Some(ev) = event_rx.next().await {
+                    cx.update(|app| handle_pin_event(app, ev));
+                }
+            })
+            .detach();
+
+            // Socket thread -> this task (fork §16.1: never block inside spawn).
+            cx.spawn(async move |cx: &mut AsyncApp| {
+                while let Some(msg) = rx.next().await {
+                    match msg {
+                        Ipc::Stop => {
+                            if let Err(err) = cx.update(save_all) {
+                                warn!("saving pins: {err:#}");
+                            }
+                            cx.update(|app| app.quit());
+                            break;
+                        }
+                        Ipc::Toggle | Ipc::Show | Ipc::Hide => {
+                            let toggle = matches!(msg, Ipc::Toggle);
+                            let forced = matches!(msg, Ipc::Show);
+                            cx.update(|app| {
+                                let mons = monitors().unwrap_or_default();
+                                let mut updates = Vec::new();
+                                {
+                                    let global = app.global_mut::<PinsGlobal>();
+                                    for entry in &mut global.entries {
+                                        let target = if toggle { !entry.visible } else { forced };
+                                        if target == entry.visible {
+                                            continue;
+                                        }
+                                        entry.visible = target;
+                                        // Toggle-on re-check: every pin must be
+                                        // fully on-screen (covers resolution/
+                                        // output changes while hidden).
+                                        let mut geom = None;
+                                        if target {
+                                            if let Some(mon) =
+                                                mons.iter().find(|m| m.name == entry.record.output)
+                                            {
+                                                let mut rec = entry.record.clone();
+                                                clamp_to_mon(&mut rec, mon);
+                                                if rec != entry.record {
+                                                    entry.record = rec.clone();
+                                                    geom = Some(rec);
+                                                }
+                                            }
+                                        }
+                                        updates.push((entry.handle, target, geom));
+                                    }
+                                }
+                                let mut dirty = false;
+                                for (handle, target, geom) in updates {
+                                    if geom.is_some() {
+                                        dirty = true;
+                                    }
+                                    let _ = handle.update(app, |pin, window, cx| {
+                                        window.set_visible(target);
+                                        if let Some((x, y, w, h)) =
+                                            geom.map(|r| (r.x, r.y, r.w, r.h))
+                                        {
+                                            pin.apply_geometry(x, y, w, h, cx);
+                                        }
+                                    });
+                                }
+                                if dirty {
+                                    if let Err(err) = persist(app.global_mut::<PinsGlobal>()) {
+                                        warn!("saving pins: {err:#}");
+                                    }
+                                }
+                            });
+                        }
+                        Ipc::Add { path, resp } => {
+                            let _ = resp.send(cx.update(|app| add_pin(app, path)));
+                        }
+                        Ipc::Clipboard { resp } => {
+                            let _ = resp.send(cx.update(|app| add_clipboard(app)));
+                        }
+                    }
+                }
+            })
+            .detach();
+        });
 
     std::fs::remove_file(&sock).ok();
     log::info!("socket removed, daemon stopped");
@@ -224,6 +247,17 @@ fn persist(global: &PinsGlobal) -> anyhow::Result<()> {
         record.z = i as u32;
     }
     global.store.save(&records)
+}
+
+/// Notice visibility tracks emptiness: shown iff no pins exist.
+fn sync_notice(app: &mut App) {
+    let (notice, show) = {
+        let global = app.global_mut::<PinsGlobal>();
+        (global.notice, global.entries.is_empty())
+    };
+    if let Some(handle) = notice {
+        let _ = handle.update(app, |_, window, _| window.set_visible(show));
+    }
 }
 
 /// Window events: persist view state, raise, delete.
@@ -281,6 +315,7 @@ fn handle_pin_event(app: &mut App, ev: PinEvent) {
             if let Err(err) = persist(app.global_mut::<PinsGlobal>()) {
                 warn!("saving pins: {err:#}");
             }
+            sync_notice(app); // empty? show the pill, keep the daemon visible
         }
     }
 }
@@ -291,9 +326,8 @@ fn add_pin(app: &mut App, path: PathBuf) -> anyhow::Result<String> {
     if !path.is_file() {
         anyhow::bail!("no such file: {}", path.display());
     }
-    let (dw, dh) = image_dims(&path)
-        .ok_or_else(|| anyhow::anyhow!("not a decodable image: {}", path.display()))?;
-    let (dw, dh) = (f64::from(dw), f64::from(dh));
+    let loaded = content::load(&path)?;
+    let (dw, dh) = (f64::from(loaded.natural.0), f64::from(loaded.natural.1));
 
     let mon = cursor_monitor().ok_or_else(|| anyhow::anyhow!("cannot resolve cursor output"))?;
     // Spawn default size: natural capped to 50% of the output, aspect
@@ -330,7 +364,16 @@ fn add_pin(app: &mut App, path: PathBuf) -> anyhow::Result<String> {
     let display_id = display_for_name(app, &record.output).or(fallback);
     let output_origin = point(px(mon.x), px(mon.y));
     let natural = size(px(dw as f32), px(dh as f32));
-    let handle = pin::spawn(app, id, &record, natural, output_origin, display_id, events)?;
+    let handle = pin::spawn(
+        app,
+        id,
+        &record,
+        loaded.render,
+        natural,
+        output_origin,
+        display_id,
+        events,
+    )?;
 
     let global = app.global_mut::<PinsGlobal>();
     global.next_id += 1;
@@ -341,6 +384,7 @@ fn add_pin(app: &mut App, path: PathBuf) -> anyhow::Result<String> {
         visible: true,
     });
     persist(&global)?;
+    sync_notice(app); // pins exist again -> hide the pill
     Ok(format!(
         "pinned {} ({}x{})",
         record.source.display(),
@@ -373,21 +417,64 @@ fn clipboard_image_path() -> anyhow::Result<PathBuf> {
         std::fs::write(&path, &bytes)?;
         return Ok(path);
     }
-    anyhow::bail!("clipboard holds no image (copy one, or install wl-clipboard for wl-paste)")
+    // No image bytes on the clipboard — a copied *file* whose path points at
+    // a decodable image pins without duplicating bytes (file-manager paste).
+    if let Some(path) = clipboard_file_path() {
+        return Ok(path);
+    }
+    anyhow::bail!("clipboard holds no image (copy image data or an image file)")
+}
+
+/// A clipboard file path (uri-list or plain text, e.g. a file copied in a
+/// file manager) pointing at a decodable image.
+fn clipboard_file_path() -> Option<PathBuf> {
+    for ty in ["text/uri-list", "text/plain;charset=utf-8", "text/plain"] {
+        let Some(bytes) = run_capture_bytes("wl-paste", &["-t", ty]) else {
+            continue;
+        };
+        for line in String::from_utf8_lossy(&bytes).lines() {
+            let trimmed = line.trim();
+            let raw = trimmed.strip_prefix("file://").unwrap_or(trimmed);
+            if raw.is_empty() {
+                continue;
+            }
+            let path = percent_decode(raw);
+            if path.is_file() && content::dims(&path).is_ok() {
+                return Some(path);
+            }
+        }
+    }
+    None
+}
+
+/// Minimal %XX decoding for file:// URIs (spaces are the common case).
+fn percent_decode(raw: &str) -> PathBuf {
+    if !raw.contains('%') {
+        return PathBuf::from(raw);
+    }
+    let bytes = raw.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Some(v) = std::str::from_utf8(&bytes[i + 1..i + 3])
+                .ok()
+                .and_then(|hex| u8::from_str_radix(hex, 16).ok())
+            {
+                out.push(v);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    PathBuf::from(String::from_utf8_lossy(&out).into_owned())
 }
 
 fn run_capture_bytes(program: &str, args: &[&str]) -> Option<Vec<u8>> {
     let out = Command::new(program).args(args).output().ok()?;
     out.status.success().then(|| out.stdout)
-}
-
-fn image_dims(path: &Path) -> Option<(u32, u32)> {
-    image::ImageReader::open(path)
-        .ok()?
-        .with_guessed_format()
-        .ok()?
-        .into_dimensions()
-        .ok()
 }
 
 /// Every pin must be fully on-screen (spec): shrink oversized pins, clamp

@@ -1,5 +1,7 @@
 mod cli;
+mod content;
 mod daemon;
+mod notice;
 mod pin;
 mod state;
 

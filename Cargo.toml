@@ -2,7 +2,7 @@
 name = "impin"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.93" # zenavif (pure-Rust AVIF) requires 1.93; CI/toolchains are latest-stable anyway
 description = "Wayland layer-shell overlay pinning reference images: zoom, pan, opacity, rounded corners"
 
 [dependencies]
@@ -20,6 +20,10 @@ log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1" # parse `hyprctl monitors -j`
 toml = "0.9" # pins.toml state file
+jxl-oxide = "0.12.6"
+usvg = { version = "0.48.1", default-features = false } # svg natural size (same tree as the fork's resvg)
+zenavif = "0.1.6"
+zenpixels = "0.2"
 
 [patch.crates-io]
 arrayref = { git = "https://github.com/mdrv/gpui-ce" } # yanked/broken on crates.io (via tiny-skia)
