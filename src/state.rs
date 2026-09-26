@@ -19,6 +19,27 @@ pub struct PinRecord {
     pub h: f64,
     /// Sibling order among pins (creation order in v0.1).
     pub z: u32,
+    /// View state. Defaults keep M1-era files (geometry only) loadable.
+    /// zoom 1 = 100% raster; pan = image top-left in window px;
+    /// opacity 0.2..1.0; radius in px.
+    #[serde(default = "default_zoom")]
+    pub zoom: f32,
+    #[serde(default)]
+    pub pan_x: f64,
+    #[serde(default)]
+    pub pan_y: f64,
+    #[serde(default = "default_opacity")]
+    pub opacity: f32,
+    #[serde(default)]
+    pub radius: f64,
+}
+
+fn default_zoom() -> f32 {
+    1.0
+}
+
+fn default_opacity() -> f32 {
+    1.0
 }
 
 /// The on-disk document: TOML roots must be tables, so records live under
@@ -69,6 +90,11 @@ impl Default for Store {
     }
 }
 
+/// Content-addressed store for clipboard images (`images/<blake3>.png`).
+pub fn images_dir() -> PathBuf {
+    default_dir().join("images")
+}
+
 fn default_dir() -> PathBuf {
     let base = std::env::var_os("XDG_STATE_HOME")
         .filter(|v| !v.is_empty())
@@ -111,6 +137,11 @@ mod tests {
             w: 100.0,
             h: 50.0,
             z: 0,
+            zoom: 1.0,
+            pan_x: 0.0,
+            pan_y: 0.0,
+            opacity: 1.0,
+            radius: 0.0,
         }];
         store.save(&pins).unwrap();
         assert!(!dir.join("pins.toml.tmp").exists(), "tmp must be renamed");
