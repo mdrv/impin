@@ -53,6 +53,9 @@ struct PinsGlobal {
     /// The "No pinned image" pill; visibility tracks emptiness. Keeping a
     /// window alive also means the process never loses its last window.
     notice: Option<WindowHandle<Notice>>,
+    /// Show/hide mode (`show`/`hide`/`toggle`). The pill only shows while
+    /// pins are empty AND the daemon is in show mode.
+    shown: bool,
     fallback: Option<DisplayId>,
     next_id: u64,
 }
@@ -141,6 +144,7 @@ pub fn run() -> anyhow::Result<()> {
                 store,
                 events: event_tx,
                 notice: notice_window,
+                shown: true,
                 fallback,
                 next_id,
             });
@@ -173,6 +177,15 @@ pub fn run() -> anyhow::Result<()> {
                                 let mut updates = Vec::new();
                                 {
                                     let global = app.global_mut::<PinsGlobal>();
+                                    // Track show mode for the pill: `hide`
+                                    // hides it, `toggle`/`show` restore it.
+                                    global.shown = if forced {
+                                        true
+                                    } else if toggle {
+                                        !global.shown
+                                    } else {
+                                        false
+                                    };
                                     for entry in &mut global.entries {
                                         let target = if toggle { !entry.visible } else { forced };
                                         if target == entry.visible {
@@ -217,6 +230,7 @@ pub fn run() -> anyhow::Result<()> {
                                         warn!("saving pins: {err:#}");
                                     }
                                 }
+                                sync_notice(app);
                             });
                         }
                         Ipc::Add { path, resp } => {
@@ -253,7 +267,7 @@ fn persist(global: &PinsGlobal) -> anyhow::Result<()> {
 fn sync_notice(app: &mut App) {
     let (notice, show) = {
         let global = app.global_mut::<PinsGlobal>();
-        (global.notice, global.entries.is_empty())
+        (global.notice, global.shown && global.entries.is_empty())
     };
     if let Some(handle) = notice {
         let _ = handle.update(app, |_, window, _| window.set_visible(show));
