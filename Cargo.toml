@@ -8,12 +8,8 @@ license = "MIT"
 repository = "https://github.com/mdrv/impin"
 
 [dependencies]
-# LOCAL PORT: file:// git dep on the `macos-port` branch of a local clone of
-# the fork (commit "macos: Window::set_position, true display origins, ...").
-# For release, push that commit as a tag and point this back at
-# git = "https://github.com/mdrv/gpui-ce", tag = "mdrv-gpui-0.0.260930.x".
-gpui = { package = "mdrv-gpui-ce", git = "file:///Users/ua/Documents/impin-port/gpui-ce", branch = "macos-port" }
-gpui_platform = { package = "mdrv-gpui-platform", git = "file:///Users/ua/Documents/impin-port/gpui-ce", branch = "macos-port" }
+gpui = { package = "mdrv-gpui-ce", git = "https://github.com/mdrv/gpui-ce", tag = "mdrv-gpui-0.0.260925.7" }
+gpui_platform = { package = "mdrv-gpui-platform", git = "https://github.com/mdrv/gpui-ce", tag = "mdrv-gpui-0.0.260925.7" }
 anyhow = "1"
 blake3 = "1" # content-address clipboard image store (spec)
 clap = { version = "4", features = ["derive"] }
@@ -30,12 +26,12 @@ zenavif = "0.1.6"
 zenpixels = "0.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-gpui_platform = { package = "mdrv-gpui-platform", git = "file:///Users/ua/Documents/impin-port/gpui-ce", branch = "macos-port", features = [
+gpui_platform = { package = "mdrv-gpui-platform", git = "https://github.com/mdrv/gpui-ce", tag = "mdrv-gpui-0.0.260925.7", features = [
 	"wayland",
 ] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-gpui_platform = { package = "mdrv-gpui-platform", git = "file:///Users/ua/Documents/impin-port/gpui-ce", branch = "macos-port", features = [
+gpui_platform = { package = "mdrv-gpui-platform", git = "https://github.com/mdrv/gpui-ce", tag = "mdrv-gpui-0.0.260925.7", features = [
 	"font-kit",
 ] }
 objc2 = "0.6"
