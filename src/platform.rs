@@ -267,6 +267,199 @@ fn store_clipboard_bytes(bytes: &[u8], ext: &str) -> anyhow::Result<PathBuf> {
     Ok(path)
 }
 
+// --- global hotkey (macOS: Carbon RegisterEventHotKey, no Accessibility
+// permission needed; Linux: compositor binds, e.g. Hyprland `bind = $mainMod,
+// I, exec, impin toggle`) ---
+
+#[cfg(target_os = "macos")]
+pub(crate) fn install_toggle_hotkey(handler: Box<dyn Fn() + Send + Sync>) -> bool {
+    use std::sync::OnceLock;
+
+    static HANDLER: OnceLock<Box<dyn Fn() + Send + Sync>> = OnceLock::new();
+
+    // Carbon's RegisterEventHotKey + application-event-target handler is
+    // silently never delivered on some systems (observed on this Hackintosh
+    // setup), so use the modern route: an active CGEventTap. It requires
+    // Input Monitoring / Accessibility for the responsible process (here:
+    // OpenCode, which is already granted). Matching combos are swallowed so
+    // the frontmost app never sees them; everything else passes through.
+    const K_CG_SESSION_EVENT_TAP: u32 = 1;
+    const K_CG_HEAD_INSERT_EVENT_TAP: u32 = 0;
+    const K_CG_EVENT_TAP_OPTION_DEFAULT: u32 = 0; // active: may swallow events
+    const K_CG_EVENT_KEY_DOWN: u64 = 1 << 10;
+    const K_CG_EVENT_FLAGS_CHANGED: u64 = 1 << 12;
+    // kCGKeyboardEventKeycode
+    const K_CG_KEYBOARD_EVENT_KEYCODE: i64 = 9;
+
+    unsafe extern "C" {
+        fn CGEventTapCreate(
+            tap: u32,
+            place: u32,
+            options: u32,
+            events_of_interest: u64,
+            callback: unsafe extern "C" fn(
+                *mut std::ffi::c_void,
+                u32,
+                *mut std::ffi::c_void,
+                *mut std::ffi::c_void,
+            ) -> *mut std::ffi::c_void,
+            user_info: *mut std::ffi::c_void,
+        ) -> *mut std::ffi::c_void;
+        fn CGEventTapEnable(tap: *mut std::ffi::c_void, enable: bool);
+        fn CGEventGetIntegerValueField(event: *mut std::ffi::c_void, field: i64) -> i64;
+        fn CGEventGetFlags(event: *mut std::ffi::c_void) -> u64;
+        fn CFMachPortCreateRunLoopSource(
+            allocator: *mut std::ffi::c_void,
+            port: *mut std::ffi::c_void,
+            order: i64,
+        ) -> *mut std::ffi::c_void;
+        fn CFRunLoopGetMain() -> *mut std::ffi::c_void;
+        fn CFRunLoopAddSource(
+            run_loop: *mut std::ffi::c_void,
+            source: *mut std::ffi::c_void,
+            mode: *mut std::ffi::c_void,
+        );
+    }
+
+    static KEY_FLAGS: OnceLock<(u32, u64)> = OnceLock::new(); // (keycode, cg-flags)
+
+    unsafe extern "C" fn on_tap(
+        _proxy: *mut std::ffi::c_void,
+        event_type: u32,
+        event: *mut std::ffi::c_void,
+        _user: *mut std::ffi::c_void,
+    ) -> *mut std::ffi::c_void {
+        // Runs on the main run loop. Active tap: swallow exactly our combo
+        // (return NULL) so the frontmost app never sees it, and pass
+        // everything else through untouched.
+        if event_type == 10
+            && let Some(&(key_code, flags)) = KEY_FLAGS.get()
+            && unsafe { CGEventGetIntegerValueField(event, K_CG_KEYBOARD_EVENT_KEYCODE) }
+                == key_code as i64
+            && unsafe { CGEventGetFlags(event) } & flags == flags
+        {
+            log::debug!("hotkey fired");
+            if let Some(handler) = HANDLER.get() {
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handler()));
+                if result.is_err() {
+                    log::warn!("toggle hotkey handler panicked (suppressed)");
+                }
+            }
+            return std::ptr::null_mut();
+        }
+        event
+    }
+
+    /// `IMPIN_HOTKEY` spec: `+`-separated modifiers + one key, e.g.
+    /// `ctrl+cmd+i`, `cmd+i`, `alt+cmd+k`. `win` is an alias for `cmd`.
+    /// Keys: single letters and digits (virtual keycodes; layout-dependent
+    /// beyond ANSI).
+    fn parse_combo(spec: &str) -> Option<(u32, u32, String)> {
+        const CMD: u32 = 1 << 8;
+        const SHIFT: u32 = 1 << 9;
+        const ALT: u32 = 1 << 11;
+        const CTRL: u32 = 1 << 12;
+        let mut mods = 0u32;
+        let mut key: Option<u32> = None;
+        for token in spec.to_ascii_lowercase().split('+') {
+            match token {
+                "cmd" | "win" => mods |= CMD,
+                "ctrl" | "control" => mods |= CTRL,
+                "alt" | "opt" | "option" => mods |= ALT,
+                "shift" => mods |= SHIFT,
+                letter if letter.len() == 1 && letter.as_bytes()[0].is_ascii_alphabetic() => {
+                    const CODES: &[(u8, u32)] = &[
+                        (b'a', 0x00), (b's', 0x01), (b'd', 0x02), (b'f', 0x03),
+                        (b'h', 0x04), (b'g', 0x05), (b'z', 0x06), (b'x', 0x07),
+                        (b'c', 0x08), (b'v', 0x09), (b'b', 0x0b), (b'q', 0x0c),
+                        (b'w', 0x0d), (b'e', 0x0e), (b'r', 0x0f), (b'y', 0x10),
+                        (b't', 0x11), (b'o', 0x1f), (b'u', 0x20), (b'i', 0x22),
+                        (b'p', 0x23), (b'l', 0x25), (b'j', 0x26), (b'k', 0x28),
+                        (b'n', 0x2d), (b'm', 0x2e),
+                    ];
+                    key = CODES
+                        .iter()
+                        .find(|(ch, _)| *ch == letter.as_bytes()[0])
+                        .map(|(_, code)| *code);
+                }
+                digit if digit.len() == 1 && digit.as_bytes()[0].is_ascii_digit() => {
+                    // kVK_ANSI_0..9 = 29,18,19,20,21,23,22,26,28,25.
+                    const CODES: &[u32] = &[29, 18, 19, 20, 21, 23, 22, 26, 28, 25];
+                    key = digit
+                        .bytes()
+                        .next()
+                        .map(|b| CODES[(b - b'0') as usize]);
+                }
+                _ => return None,
+            }
+        }
+        let key = key?;
+        Some((key, mods, spec.to_string()))
+    }
+
+    let _ = HANDLER.set(handler);
+    let (key_code, mods, label) = match std::env::var("IMPIN_HOTKEY") {
+        Ok(spec) if !spec.trim().is_empty() => match parse_combo(spec.trim()) {
+            Some(combo) => combo,
+            None => {
+                log::warn!("IMPIN_HOTKEY={spec:?} not understood (want e.g. cmd+i); using ctrl+cmd+i");
+                (0x22, (1 << 12) | (1 << 8), "ctrl+cmd+i".to_string())
+            }
+        },
+        _ => (0x22, (1 << 12) | (1 << 8), "ctrl+cmd+i".to_string()),
+    };
+
+    // Carbon modifier bits -> CGEventFlags bits.
+    // cmd 1<<8 -> 1<<20, shift 1<<9 -> 1<<17, alt 1<<11 -> 1<<19,
+    // ctrl 1<<12 -> 1<<18.
+    let cg_flags = ((mods & (1 << 8)) != 0) as u64 * (1 << 20)
+        | ((mods & (1 << 9)) != 0) as u64 * (1 << 17)
+        | ((mods & (1 << 11)) != 0) as u64 * (1 << 19)
+        | ((mods & (1 << 12)) != 0) as u64 * (1 << 18);
+    let _ = KEY_FLAGS.set((key_code, cg_flags));
+
+    unsafe {
+        let tap = CGEventTapCreate(
+            K_CG_SESSION_EVENT_TAP,
+            K_CG_HEAD_INSERT_EVENT_TAP,
+            K_CG_EVENT_TAP_OPTION_DEFAULT,
+            K_CG_EVENT_KEY_DOWN | K_CG_EVENT_FLAGS_CHANGED,
+            on_tap,
+            std::ptr::null_mut(),
+        );
+        if tap.is_null() {
+            log::warn!(
+                "CGEventTapCreate returned null; grant Input Monitoring/Accessibility to the \
+                 host process to enable the global toggle hotkey"
+            );
+            return false;
+        }
+        CGEventTapEnable(tap, true);
+        let source = CFMachPortCreateRunLoopSource(std::ptr::null_mut(), tap, 0);
+        if source.is_null() {
+            log::warn!("CFMachPortCreateRunLoopSource failed; global toggle unavailable");
+            return false;
+        }
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, k_cf_run_loop_common_modes());
+        log::info!("global toggle hotkey registered: {label} (CGEventTap)");
+        true
+    }
+}
+
+/// `kCFRunLoopCommonModes` as a CFStringRef global.
+#[cfg(target_os = "macos")]
+unsafe fn k_cf_run_loop_common_modes() -> *mut std::ffi::c_void {
+    unsafe extern "C" {
+        static kCFRunLoopCommonModes: *mut std::ffi::c_void;
+    }
+    unsafe { kCFRunLoopCommonModes }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn install_toggle_hotkey(_handler: Box<dyn Fn() + Send + Sync>) -> bool {
+    false // compositor-side binding (see README)
+}
+
 // --- Hyprland helpers (Linux arm only) ---
 
 #[cfg(not(target_os = "macos"))]

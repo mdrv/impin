@@ -4,7 +4,9 @@
 use std::io::{Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
-use std::time::Duration;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use futures::StreamExt;
 use futures::channel::mpsc::{UnboundedSender, unbounded};
@@ -84,6 +86,28 @@ pub fn run() -> anyhow::Result<()> {
     application()
         .with_quit_mode(QuitMode::Explicit)
         .run(move |cx: &mut App| {
+            // Global toggle hotkey (macOS): Ctrl+Cmd+I by default, override
+            // with IMPIN_HOTKEY (e.g. `cmd+i`). Registered here — after
+            // AppKit launch — via an active CGEventTap. Forwards through the
+            // same channel as the CLI's `toggle` verb; debounced because a
+            // held combo auto-repeats ~30 taps/s.
+            #[cfg(target_os = "macos")]
+            {
+                let hotkey_tx = tx.clone();
+                let last_fire = Arc::new(AtomicU64::new(0));
+                platform::install_toggle_hotkey(Box::new(move || {
+                    let now = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64;
+                    let last = last_fire.load(Ordering::Relaxed);
+                    if now.saturating_sub(last) < 200 {
+                        return; // key auto-repeat
+                    }
+                    last_fire.store(now, Ordering::Relaxed);
+                    let _ = hotkey_tx.unbounded_send(Ipc::Toggle);
+                }));
+            }
             std::thread::spawn(move || accept_loop(listener, tx));
 
             let store = Store::new();
