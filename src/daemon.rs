@@ -635,7 +635,9 @@ fn pipe_accept_loop(tx: UnboundedSender<Ipc>) {
     };
 
     const PIPE_NAME: &str = "\\\\.\\pipe\\impin";
-    let name: Vec<u16> = PIPE_NAME.encode_utf16().collect();
+    // NUL-terminated for PCWSTR — a missing terminator here once made the
+    // pipe register as `\\.\pipe\impinTT??u` (heap garbage suffix).
+    let name: Vec<u16> = format!("{PIPE_NAME}\0").encode_utf16().collect();
     loop {
         // Returns the bare handle; INVALID_HANDLE_VALUE on failure.
         let pipe: HANDLE = unsafe {
