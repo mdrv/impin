@@ -393,11 +393,10 @@ pub(crate) fn clipboard_image_path(cx: &App) -> anyhow::Result<PathBuf> {
                 return store_clipboard_bytes(&png, "png");
             }
             ClipboardEntry::ExternalPaths(paths) => {
-                if let Some(path) = paths
-                    .paths()
-                    .iter()
-                    .find(|p| p.is_file() && crate::content::dims(p).is_ok())
-                {
+                // Any copied file path qualifies (Explorer "copy"): the
+                // extension decides at add time. dims() here would reject
+                // every format the sniffing reader can't see (AVIF/JXL).
+                if let Some(path) = paths.paths().iter().find(|p| p.is_file()) {
                     return Ok(path.clone());
                 }
             }

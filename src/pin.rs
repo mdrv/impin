@@ -253,6 +253,12 @@ pub fn spawn(
     let options = WindowOptions {
         titlebar: None,
         focus: false,
+        // MUST be false: the Windows backend hit-tests a native top resize
+        // band into every `is_resizable` titlebar-less window (HTTOP*), so
+        // the OS modal size loop hijacks top-edge/corner drags and the pin's
+        // own state never learns the new geometry (next resize reverts).
+        // Our edge strips + window.resize() are unaffected.
+        is_resizable: false,
         show: true,
         app_id: Some("impin".into()),
         window_background: WindowBackgroundAppearance::Transparent,
@@ -808,6 +814,12 @@ impl Render for Pin {
                 // rounded corners; round the image itself to match.
                 .rounded(px(self.radius))
                 .object_fit(ObjectFit::Contain)
+                // Per-element fade, not a group .opacity(): the group version
+                // multiplies each layer's alpha, so the image would blend over
+                // the semi-faded backdrop (bg between desktop and image reads
+                // as "backdrop still at 100%"). Same on macOS/Linux — it's
+                // core stacking math, not a Windows bug.
+                .opacity(self.opacity)
         };
         // The parent's overflow_hidden does not clip children to the rounded
         // corners; the image is rounded itself above.
@@ -831,11 +843,10 @@ impl Render for Pin {
             .id(("pin", self.id))
             .size_full()
             .relative()
-            .bg(hsla(220.0, 0.2, 0.10, 0.92))
+            .bg(hsla(220.0, 0.2, 0.10, 0.92 * self.opacity))
             .border_1()
-            .border_color(hsla(0.0, 0.0, 1.0, 0.18))
+            .border_color(hsla(0.0, 0.0, 1.0, 0.18 * self.opacity))
             .rounded(px(self.radius))
-            .opacity(self.opacity)
             .overflow_hidden()
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::on_key))

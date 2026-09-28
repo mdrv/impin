@@ -3,8 +3,8 @@
 //! with `QuitMode::Explicit`, a reason to survive its last window closing.
 
 use gpui::{
-    App, Bounds, Context, DisplayId, Render, Window, WindowBackgroundAppearance, WindowBounds,
-    WindowHandle, WindowOptions, div, hsla, point, prelude::*, px, size,
+    div, hsla, point, prelude::*, px, size, App, Bounds, Context, DisplayId, Render, Window,
+    WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowOptions,
 };
 
 /// The pill is a fixed-size surface centered on its display: Wayland does it
@@ -30,6 +30,9 @@ pub fn spawn(cx: &mut App, display_id: Option<DisplayId>) -> anyhow::Result<Wind
     let options = WindowOptions {
         titlebar: None,
         focus: false,
+        // Not natively resizable/movable: keeps the Windows hit-test from
+        // adding resize bands / a caption drag area to the pill.
+        is_resizable: false,
         show: false,
         app_id: Some("impin-notice".into()),
         window_background: WindowBackgroundAppearance::Transparent,
