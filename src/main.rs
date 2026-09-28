@@ -3,6 +3,7 @@ mod content;
 mod daemon;
 mod notice;
 mod pin;
+mod platform;
 mod state;
 
 fn main() {

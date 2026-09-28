@@ -4,16 +4,11 @@
 use std::io::{Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
-use std::process::Command;
-use std::rc::Rc;
 use std::time::Duration;
 
 use futures::StreamExt;
 use futures::channel::mpsc::{UnboundedSender, unbounded};
-use gpui::{
-    App, AsyncApp, DisplayId, Pixels, PlatformDisplay, Point, QuitMode, Size, WindowHandle, point,
-    px, size,
-};
+use gpui::{App, AsyncApp, DisplayId, Pixels, QuitMode, Size, WindowHandle, point, px, size};
 use gpui_platform::application;
 use log::warn;
 
@@ -21,6 +16,7 @@ use crate::cli::socket_path;
 use crate::content::{self, PinImage};
 use crate::notice::{self, Notice};
 use crate::pin::{self, PinEvent};
+use crate::platform::{self, Mon};
 use crate::state::{PinRecord, Store};
 
 enum Ipc {
@@ -66,6 +62,8 @@ struct PinsGlobal {
 impl gpui::Global for PinsGlobal {}
 
 pub fn run() -> anyhow::Result<()> {
+    // Accessory before any window exists: no Dock icon, no menu bar.
+    platform::accessory_mode();
     let sock = socket_path();
     if sock.exists() {
         match UnixStream::connect(&sock) {
@@ -100,7 +98,7 @@ pub fn run() -> anyhow::Result<()> {
                     Vec::new()
                 }
             };
-            let fallback = primary_display(cx).map(|d| d.id());
+            let fallback = platform::primary_display(cx).map(|d| d.id());
             // The notice pill: created hidden, shown while zero pins exist. It
             // also guarantees a window always exists (Explicit quit mode).
             let notice_window = notice::spawn(cx, fallback)
@@ -109,7 +107,7 @@ pub fn run() -> anyhow::Result<()> {
             // Pins -> daemon events (persist/lifetime); created before restore
             // so spawned pins can send immediately.
             let (event_tx, mut event_rx) = unbounded::<PinEvent>();
-            let mons = monitors().unwrap_or_default();
+            let mons = platform::monitors(cx).unwrap_or_default();
             let (mut entries, mut pending) = (Vec::new(), Vec::new());
             let mut id_counter = 0u64;
             for mut record in records {
@@ -130,7 +128,7 @@ pub fn run() -> anyhow::Result<()> {
                 let output_origin = mon
                     .map(|m| point(px(m.x), px(m.y)))
                     .unwrap_or(point(px(0.), px(0.)));
-                let display_id = display_for_name(cx, &record.output).or(fallback);
+                let display_id = platform::display_for_name(cx, &record.output).or(fallback);
                 match pin::spawn(
                     cx,
                     id,
@@ -194,7 +192,7 @@ pub fn run() -> anyhow::Result<()> {
                                 // Outputs may have reappeared: spawn pins
                                 // that were waiting for theirs (spec).
                                 spawn_pending(app);
-                                let mons = monitors().unwrap_or_default();
+                                let mons = platform::monitors(app).unwrap_or_default();
                                 let mut updates = Vec::new();
                                 {
                                     let global = app.global_mut::<PinsGlobal>();
@@ -312,7 +310,7 @@ fn spawn_entry(
     natural: Size<Pixels>,
     visible: bool,
 ) -> anyhow::Result<()> {
-    let mon = monitors()
+    let mon = platform::monitors(app)
         .unwrap_or_default()
         .into_iter()
         .find(|m| m.name == record.output);
@@ -324,7 +322,7 @@ fn spawn_entry(
         let global = app.global::<PinsGlobal>();
         (global.next_id, global.fallback, global.events.clone())
     };
-    let display_id = display_for_name(app, &record.output).or(fallback);
+    let display_id = platform::display_for_name(app, &record.output).or(fallback);
     let output_origin = mon
         .map(|m| point(px(m.x), px(m.y)))
         .unwrap_or(point(px(0.), px(0.)));
@@ -341,7 +339,7 @@ fn spawn_entry(
     if !visible {
         let _ = handle.update(app, |_, window, _| window.set_visible(false));
     }
-    let mut global = app.global_mut::<PinsGlobal>();
+    let global = app.global_mut::<PinsGlobal>();
     global.next_id += 1;
     global.entries.push(PinEntry {
         id,
@@ -357,7 +355,7 @@ fn spawn_entry(
 /// stay hidden until it reappears; toggle/show re-checks).
 fn spawn_pending(app: &mut App) {
     let (waiting, shown) = {
-        let mons = monitors().unwrap_or_default();
+        let mons = platform::monitors(app).unwrap_or_default();
         let global = app.global_mut::<PinsGlobal>();
         let (mut waiting, mut remaining) = (Vec::new(), Vec::new());
         for record in global.pending.drain(..) {
@@ -462,7 +460,8 @@ fn add_pin(app: &mut App, path: PathBuf) -> anyhow::Result<String> {
     let loaded = content::load(&path)?;
     let (dw, dh) = (f64::from(loaded.natural.0), f64::from(loaded.natural.1));
 
-    let mon = cursor_monitor().ok_or_else(|| anyhow::anyhow!("cannot resolve cursor output"))?;
+    let mon =
+        platform::cursor_monitor(app).ok_or_else(|| anyhow::anyhow!("cannot resolve cursor output"))?;
     // Spawn default size: natural capped to 50% of the output, aspect
     // preserved; a pin whose image is larger than that spawns fit — zoom
     // < 1 exactly encodes that (spec).
@@ -470,7 +469,7 @@ fn add_pin(app: &mut App, path: PathBuf) -> anyhow::Result<String> {
         .min(f64::from(mon.w) * 0.5 / dw)
         .min(f64::from(mon.h) * 0.5 / dh);
     let (w, h) = (dw * scale, dh * scale);
-    let cursor = hypr_cursor_global().ok_or_else(|| anyhow::anyhow!("cannot read cursor"))?;
+    let cursor = platform::cursor_global().ok_or_else(|| anyhow::anyhow!("cannot read cursor"))?;
     let x = f64::from((f32::from(cursor.x) - mon.x).max(0.0)) - w / 2.0;
     let y = f64::from((f32::from(cursor.y) - mon.y).max(0.0)) - h / 2.0;
 
@@ -503,86 +502,8 @@ fn add_pin(app: &mut App, path: PathBuf) -> anyhow::Result<String> {
 
 /// `clipboard` verb: pin whatever image the clipboard holds.
 fn add_clipboard(app: &mut App) -> anyhow::Result<String> {
-    let path = clipboard_image_path()?;
+    let path = platform::clipboard_image_path()?;
     add_pin(app, path)
-}
-
-/// Clipboard image -> `images/<blake3>.<ext>` (spec: content-addressed
-/// store; wl-clipboard supplies the bytes).
-fn clipboard_image_path() -> anyhow::Result<PathBuf> {
-    for ty in ["image/png", "image/jpeg"] {
-        let Some(bytes) = run_capture_bytes("wl-paste", &["-t", ty]) else {
-            continue;
-        };
-        if bytes.is_empty() {
-            continue;
-        }
-        let ext = ty.split_once('/').unwrap().1;
-        let hash = blake3::hash(&bytes).to_hex();
-        let dir = crate::state::images_dir();
-        std::fs::create_dir_all(&dir)?;
-        let path = dir.join(format!("{hash}.{ext}"));
-        std::fs::write(&path, &bytes)?;
-        return Ok(path);
-    }
-    // No image bytes on the clipboard — a copied *file* whose path points at
-    // a decodable image pins without duplicating bytes (file-manager paste).
-    if let Some(path) = clipboard_file_path() {
-        return Ok(path);
-    }
-    anyhow::bail!("clipboard holds no image (copy image data or an image file)")
-}
-
-/// A clipboard file path (uri-list or plain text, e.g. a file copied in a
-/// file manager) pointing at a decodable image.
-fn clipboard_file_path() -> Option<PathBuf> {
-    for ty in ["text/uri-list", "text/plain;charset=utf-8", "text/plain"] {
-        let Some(bytes) = run_capture_bytes("wl-paste", &["-t", ty]) else {
-            continue;
-        };
-        for line in String::from_utf8_lossy(&bytes).lines() {
-            let trimmed = line.trim();
-            let raw = trimmed.strip_prefix("file://").unwrap_or(trimmed);
-            if raw.is_empty() {
-                continue;
-            }
-            let path = percent_decode(raw);
-            if path.is_file() && content::dims(&path).is_ok() {
-                return Some(path);
-            }
-        }
-    }
-    None
-}
-
-/// Minimal %XX decoding for file:// URIs (spaces are the common case).
-fn percent_decode(raw: &str) -> PathBuf {
-    if !raw.contains('%') {
-        return PathBuf::from(raw);
-    }
-    let bytes = raw.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Some(v) = std::str::from_utf8(&bytes[i + 1..i + 3])
-                .ok()
-                .and_then(|hex| u8::from_str_radix(hex, 16).ok())
-            {
-                out.push(v);
-                i += 3;
-                continue;
-            }
-        }
-        out.push(bytes[i]);
-        i += 1;
-    }
-    PathBuf::from(String::from_utf8_lossy(&out).into_owned())
-}
-
-fn run_capture_bytes(program: &str, args: &[&str]) -> Option<Vec<u8>> {
-    let out = Command::new(program).args(args).output().ok()?;
-    out.status.success().then(|| out.stdout)
 }
 
 /// Every pin must be fully on-screen (spec): shrink oversized pins, clamp
@@ -646,77 +567,3 @@ fn ask(
     }
 }
 
-// --- output/cursor resolution (Hyprland), adapted from upperadd ---
-
-struct Mon {
-    name: String,
-    x: f32,
-    y: f32,
-    w: f32,
-    h: f32,
-}
-
-pub(crate) fn hypr_cursor_global() -> Option<Point<Pixels>> {
-    let pos = run_capture("hyprctl", &["cursorpos"])?;
-    let (x, y) = pos.trim().split_once(',')?;
-    Some(point(
-        px(x.trim().parse::<f32>().ok()?),
-        px(y.trim().parse::<f32>().ok()?),
-    ))
-}
-
-fn monitors() -> Option<Vec<Mon>> {
-    let json = run_capture("hyprctl", &["monitors", "-j"])?;
-    let value: serde_json::Value = serde_json::from_str(&json).ok()?;
-    Some(
-        value
-            .as_array()?
-            .iter()
-            .filter_map(|m| {
-                Some(Mon {
-                    name: m.get("name")?.as_str()?.to_string(),
-                    x: num(m, "x")?,
-                    y: num(m, "y")?,
-                    w: num(m, "width")?,
-                    h: num(m, "height")?,
-                })
-            })
-            .collect(),
-    )
-}
-
-fn cursor_monitor() -> Option<Mon> {
-    let cursor = hypr_cursor_global()?;
-    let (cx_, cy_) = (f32::from(cursor.x), f32::from(cursor.y));
-    monitors()?
-        .into_iter()
-        .find(|m| cx_ >= m.x && cx_ < m.x + m.w && cy_ >= m.y && cy_ < m.y + m.h)
-}
-
-fn display_for_origin(cx: &App, x: f32, y: f32) -> Option<DisplayId> {
-    cx.displays()
-        .into_iter()
-        .find(|d| {
-            let o = d.bounds().origin;
-            (f32::from(o.x) - x).abs() <= 1.0 && (f32::from(o.y) - y).abs() <= 1.0
-        })
-        .map(|d| d.id())
-}
-
-fn display_for_name(cx: &App, name: &str) -> Option<DisplayId> {
-    let mon = monitors()?.into_iter().find(|m| m.name == name)?;
-    display_for_origin(cx, mon.x, mon.y)
-}
-
-fn primary_display(cx: &App) -> Option<Rc<dyn PlatformDisplay>> {
-    cx.displays().into_iter().next()
-}
-
-fn run_capture(program: &str, args: &[&str]) -> Option<String> {
-    let out = Command::new(program).args(args).output().ok()?;
-    Some(String::from_utf8_lossy(&out.stdout).into_owned())
-}
-
-fn num(value: &serde_json::Value, key: &str) -> Option<f32> {
-    value.get(key)?.as_f64().map(|v| v as f32)
-}

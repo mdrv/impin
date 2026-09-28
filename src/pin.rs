@@ -1,9 +1,9 @@
-//! A pinned image window: an anchored top+left layer surface positioned by
-//! margins (fork `Window::set_margin`, stage-only since tag .2). Left-drag
-//! moves, edge/corner-drag resizes (ground-truth poll mechanics proven in
-//! upperadd), middle/Ctrl-drag pans, Ctrl+wheel zooms; `[`/`]` opacity,
-//! `,`/`.` corner radius, `0`/`1`/`-`/`=` zoom, double-click fits,
-//! `Q`/`Delete` deletes.
+//! A pinned image window: an overlay surface anchored top-left — layer
+//! surface positioned by margins on Wayland (fork `Window::set_margin`),
+//! `Window::set_position` on macOS. Left-drag moves, edge/corner-drag
+//! resizes (ground-truth poll mechanics proven in upperadd), middle/Ctrl-drag
+//! pans, Ctrl+wheel zooms; `[`/`]` opacity, `,`/`.` corner radius,
+//! `0`/`1`/`-`/`=` zoom, double-click fits, `Q`/`Delete` deletes.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -14,7 +14,7 @@ use gpui::{
     App, Bounds, ClickEvent, Context, CursorStyle, DisplayId, FocusHandle, InteractiveElement,
     KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit, Pixels,
     Point, Render, ScrollDelta, ScrollWheelEvent, Size, Window, WindowBackgroundAppearance,
-    WindowBounds, WindowHandle, WindowKind, WindowOptions, div, hsla, img, layer_shell::*, point,
+    WindowBounds, WindowHandle, WindowOptions, div, hsla, img, point,
     prelude::*, px, size,
 };
 use log::debug;
@@ -256,15 +256,7 @@ pub fn spawn(
             origin: point(px(0.), px(0.)),
             size: win_size,
         })),
-        kind: WindowKind::LayerShell(LayerShellOptions {
-            namespace: "impin".into(),
-            layer: Layer::Top,
-            anchor: Anchor::TOP | Anchor::LEFT,
-            exclusive_zone: Some(px(-1.)),
-            margin: Some((pos.y, px(0.), px(0.), pos.x)),
-            keyboard_interactivity: KeyboardInteractivity::OnDemand,
-            ..Default::default()
-        }),
+        kind: crate::platform::pin_kind(pos),
         ..Default::default()
     };
     let output = record.output.clone();
@@ -572,7 +564,7 @@ impl Pin {
         let Some(gesture) = &mut self.gesture else {
             return false;
         };
-        let Some(cursor) = crate::daemon::hypr_cursor_global() else {
+        let Some(cursor) = crate::platform::cursor_global() else {
             return true; // Hyprland IPC hiccup; keep the gesture alive
         };
         let local = point(
@@ -706,7 +698,13 @@ impl Render for Pin {
         if self.pos != self.sent_pos {
             let p = self.pos;
             self.sent_pos = p;
-            debug!("pin set_margin {:?}", p);
+            debug!("pin set_position {:?}", p);
+            // macOS: top-left-origin global. (setFrameTopLeftPoint lands on
+            // the runloop rather than staging into this frame's commit like
+            // a layer-surface margin — a one-frame trailing edge at most.)
+            #[cfg(target_os = "macos")]
+            window.set_position(self.output_origin + p);
+            #[cfg(not(target_os = "macos"))]
             window.set_margin((p.y, px(0.), px(0.), p.x));
         }
         // A window-wide cursor request wins over hover styles for the frame,

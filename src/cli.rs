@@ -74,8 +74,12 @@ pub fn run() -> anyhow::Result<()> {
 }
 
 pub fn socket_path() -> PathBuf {
-    let runtime = std::env::var_os("XDG_RUNTIME_DIR").unwrap_or_default();
-    PathBuf::from(runtime).join("impin.sock")
+    // Linux: $XDG_RUNTIME_DIR per spec. macOS leaves it unset; the per-user
+    // temp dir is the equivalent per-user runtime base.
+    match std::env::var_os("XDG_RUNTIME_DIR").filter(|v| !v.is_empty()) {
+        Some(dir) => PathBuf::from(dir).join("impin.sock"),
+        None => std::env::temp_dir().join("impin.sock"),
+    }
 }
 
 fn send_verb(verb: &str) -> anyhow::Result<()> {

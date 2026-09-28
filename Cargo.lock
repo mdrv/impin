@@ -305,7 +305,7 @@ dependencies = [
 [[package]]
 name = "arrayref"
 version = "0.3.9"
-source = "git+https://github.com/mdrv/gpui-ce#cb20092559930255b49aab674478f340684dec4f"
+source = "git+https://github.com/mdrv/gpui-ce#12937ae94163cda2b91e98cc191773842365665b"
 
 [[package]]
 name = "arrayvec"
@@ -829,9 +829,9 @@ dependencies = [
 
 [[package]]
 name = "built"
-version = "0.8.0"
+version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4ad8f11f288f48ca24471bbd51ac257aaeaaa07adae295591266b792902ae64"
+checksum = "5c0e531d93d39c34eef561e929e8a7f86d77a5af08aac4f6d6e39976c51858e9"
 
 [[package]]
 name = "bumpalo"
@@ -1202,6 +1202,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "core_detect"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f8f80099a98041a3d1622845c271458a2d73e688351bf3cb999266764b81d48"
+
+[[package]]
 name = "core_maths"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1363,9 +1369,6 @@ name = "deranged"
 version = "0.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7cd812cc2bc1d69d4764bd80df88b4317eaef9e773c75226407d9bc0876b211c"
-dependencies = [
- "powerfmt",
-]
 
 [[package]]
 name = "derive_more"
@@ -1515,11 +1518,16 @@ dependencies = [
 
 [[package]]
 name = "encoding_rs"
-version = "0.8.35"
+version = "0.8.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75030f3c4f45dafd7586dd6780965a8c7e8e285a5ecb86713e63a79c5b2766f3"
+checksum = "8e985e0451871ad22fb8d2b6b076e2028a502a0d3950998c2c5c0a4f9b5d9679"
 dependencies = [
  "cfg-if",
+ "core_detect",
+ "multiversion_no_op",
+ "rustversion",
+ "scopeguard",
+ "simdutf8",
 ]
 
 [[package]]
@@ -2320,11 +2328,11 @@ dependencies = [
 
 [[package]]
 name = "home"
-version = "0.5.11"
+version = "0.5.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "589533453244b0995c858700322199b2becb13b627df2851f64a2775d024abcf"
+checksum = "cc627f471c528ff0c4a49e1d5e60450c8f6461dd6d10ba9dcd3a61d3dff7728d"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2363,12 +2371,13 @@ dependencies = [
 
 [[package]]
 name = "icu_collections"
-version = "2.1.1"
+version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c6b649701667bbe825c3b7e6388cb521c23d88644678e83c0c4d0a621a34b43"
+checksum = "fa68d21081c4a05d5a901a1c62add574c77048b6a1c67be3b50ce0b60d4ca513"
 dependencies = [
  "displaydoc",
  "potential_utf",
+ "utf8_iter",
  "yoke",
  "zerofrom",
  "zerovec",
@@ -2376,9 +2385,9 @@ dependencies = [
 
 [[package]]
 name = "icu_locale_core"
-version = "2.1.1"
+version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "edba7861004dd3714265b4db54a3c390e880ab658fec5f7db895fae2046b5bb6"
+checksum = "d56e28588da92eee5c3201a6eff33fabdd49b62269c8938d4ff050ce4d900deb"
 dependencies = [
  "displaydoc",
  "litemap",
@@ -2389,9 +2398,9 @@ dependencies = [
 
 [[package]]
 name = "icu_normalizer"
-version = "2.1.1"
+version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f6c8828b67bf8908d82127b2054ea1b4427ff0230ee9141c54251934ab1b599"
+checksum = "12f9cf5f235641ed274641dd81c3f28d870e276763d0797aeeab72317b1c646f"
 dependencies = [
  "icu_collections",
  "icu_normalizer_data",
@@ -2403,16 +2412,17 @@ dependencies = [
 
 [[package]]
 name = "icu_normalizer_data"
-version = "2.1.1"
+version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7aedcccd01fc5fe81e6b489c15b247b8b0690feb23304303a9e560f37efc560a"
+checksum = "1563da1ed3e0b3bf3d74c9b85917ac9c56464d2f57242270c09c9e752f8021a0"
 
 [[package]]
 name = "icu_properties"
-version = "2.1.2"
+version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "020bfc02fe870ec3a66d93e677ccca0562506e5872c650f893269e08615d74ec"
+checksum = "7e7ca276ad3145661a65914e6daf131ca5120cd3dcee8f8f3214b8875184a148"
 dependencies = [
+ "displaydoc",
  "icu_collections",
  "icu_locale_core",
  "icu_properties_data",
@@ -2423,15 +2433,15 @@ dependencies = [
 
 [[package]]
 name = "icu_properties_data"
-version = "2.1.2"
+version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "616c294cf8d725c6afcd8f55abc17c56464ef6211f9ed59cccffe534129c77af"
+checksum = "e590f038c1464a96894fd6d10127e90a8be4509f56ff7ecef851b15cee0b7caa"
 
 [[package]]
 name = "icu_provider"
-version = "2.1.1"
+version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85962cf0ce02e1e0a629cc34e7ca3e373ce20dda4c4d7294bbd0bf1fdb59e614"
+checksum = "d27bbb9d3abbefac45d55f647c9de1d44aafcd1186eb91879afef17c396c3e73"
 dependencies = [
  "displaydoc",
  "icu_locale_core",
@@ -2455,9 +2465,9 @@ dependencies = [
 
 [[package]]
 name = "idna_adapter"
-version = "1.2.1"
+version = "1.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3acae9609540aa318d1bc588455225fb2085b9ed0c4f6bd0d9d5bcd86f1a0344"
+checksum = "cb68373c0d6620ef8105e855e7745e18b0d00d3bdb07fb532e434244cdb9a714"
 dependencies = [
  "icu_normalizer",
  "icu_properties",
@@ -2523,6 +2533,8 @@ dependencies = [
  "log",
  "mdrv-gpui-ce",
  "mdrv-gpui-platform",
+ "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
  "serde",
  "serde_json",
  "toml 0.9.12+spec-1.1.0",
@@ -3222,7 +3234,7 @@ dependencies = [
 [[package]]
 name = "mdrv-gpui-apple"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
+source = "git+file:///Users/ua/Documents/impin-port/gpui-ce?branch=macos-port#9d40824696c7f72088bca4c4aa12eff80cb47b0a"
 dependencies = [
  "anyhow",
  "block",
@@ -3248,7 +3260,7 @@ dependencies = [
 [[package]]
 name = "mdrv-gpui-ce"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
+source = "git+file:///Users/ua/Documents/impin-port/gpui-ce?branch=macos-port#9d40824696c7f72088bca4c4aa12eff80cb47b0a"
 dependencies = [
  "accesskit",
  "anyhow",
@@ -3319,7 +3331,7 @@ dependencies = [
 [[package]]
 name = "mdrv-gpui-collections"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
+source = "git+file:///Users/ua/Documents/impin-port/gpui-ce?branch=macos-port#9d40824696c7f72088bca4c4aa12eff80cb47b0a"
 dependencies = [
  "indexmap",
  "mdrv-gpui-util",
@@ -3329,7 +3341,7 @@ dependencies = [
 [[package]]
 name = "mdrv-gpui-derive-refineable"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
+source = "git+file:///Users/ua/Documents/impin-port/gpui-ce?branch=macos-port#9d40824696c7f72088bca4c4aa12eff80cb47b0a"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3339,7 +3351,7 @@ dependencies = [
 [[package]]
 name = "mdrv-gpui-linux"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
+source = "git+file:///Users/ua/Documents/impin-port/gpui-ce?branch=macos-port#9d40824696c7f72088bca4c4aa12eff80cb47b0a"
 dependencies = [
  "accesskit",
  "accesskit_unix",
@@ -3386,7 +3398,7 @@ dependencies = [
 [[package]]
 name = "mdrv-gpui-macos"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
+source = "git+file:///Users/ua/Documents/impin-port/gpui-ce?branch=macos-port#9d40824696c7f72088bca4c4aa12eff80cb47b0a"
 dependencies = [
  "accesskit",
  "accesskit_macos",
@@ -3429,12 +3441,13 @@ dependencies = [
  "strum 0.27.2",
  "url",
  "uuid",
+ "zed-font-kit",
 ]
 
 [[package]]
 name = "mdrv-gpui-macros"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
+source = "git+file:///Users/ua/Documents/impin-port/gpui-ce?branch=macos-port#9d40824696c7f72088bca4c4aa12eff80cb47b0a"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -3445,7 +3458,7 @@ dependencies = [
 [[package]]
 name = "mdrv-gpui-media"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
+source = "git+file:///Users/ua/Documents/impin-port/gpui-ce?branch=macos-port#9d40824696c7f72088bca4c4aa12eff80cb47b0a"
 dependencies = [
  "anyhow",
  "bindgen",
@@ -3459,7 +3472,7 @@ dependencies = [
 [[package]]
 name = "mdrv-gpui-platform"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
+source = "git+file:///Users/ua/Documents/impin-port/gpui-ce?branch=macos-port#9d40824696c7f72088bca4c4aa12eff80cb47b0a"
 dependencies = [
  "console_error_panic_hook",
  "mdrv-gpui-apple",
@@ -3473,7 +3486,7 @@ dependencies = [
 [[package]]
 name = "mdrv-gpui-refineable"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
+source = "git+file:///Users/ua/Documents/impin-port/gpui-ce?branch=macos-port#9d40824696c7f72088bca4c4aa12eff80cb47b0a"
 dependencies = [
  "mdrv-gpui-derive-refineable",
 ]
@@ -3481,7 +3494,7 @@ dependencies = [
 [[package]]
 name = "mdrv-gpui-render"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
+source = "git+file:///Users/ua/Documents/impin-port/gpui-ce?branch=macos-port#9d40824696c7f72088bca4c4aa12eff80cb47b0a"
 dependencies = [
  "mdrv-gpui-ce",
  "naga 24.0.0",
@@ -3493,7 +3506,7 @@ dependencies = [
 [[package]]
 name = "mdrv-gpui-scheduler"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
+source = "git+file:///Users/ua/Documents/impin-port/gpui-ce?branch=macos-port#9d40824696c7f72088bca4c4aa12eff80cb47b0a"
 dependencies = [
  "async-task",
  "backtrace",
@@ -3508,7 +3521,7 @@ dependencies = [
 [[package]]
 name = "mdrv-gpui-shared-string"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
+source = "git+file:///Users/ua/Documents/impin-port/gpui-ce?branch=macos-port#9d40824696c7f72088bca4c4aa12eff80cb47b0a"
 dependencies = [
  "schemars",
  "serde",
@@ -3518,7 +3531,7 @@ dependencies = [
 [[package]]
 name = "mdrv-gpui-sum-tree"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
+source = "git+file:///Users/ua/Documents/impin-port/gpui-ce?branch=macos-port#9d40824696c7f72088bca4c4aa12eff80cb47b0a"
 dependencies = [
  "heapless",
  "log",
@@ -3529,7 +3542,7 @@ dependencies = [
 [[package]]
 name = "mdrv-gpui-util"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
+source = "git+file:///Users/ua/Documents/impin-port/gpui-ce?branch=macos-port#9d40824696c7f72088bca4c4aa12eff80cb47b0a"
 dependencies = [
  "anyhow",
  "log",
@@ -3539,7 +3552,7 @@ dependencies = [
 [[package]]
 name = "mdrv-gpui-web"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
+source = "git+file:///Users/ua/Documents/impin-port/gpui-ce?branch=macos-port#9d40824696c7f72088bca4c4aa12eff80cb47b0a"
 dependencies = [
  "anyhow",
  "console_error_panic_hook",
@@ -3562,7 +3575,7 @@ dependencies = [
 [[package]]
 name = "mdrv-gpui-wgpu"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
+source = "git+file:///Users/ua/Documents/impin-port/gpui-ce?branch=macos-port#9d40824696c7f72088bca4c4aa12eff80cb47b0a"
 dependencies = [
  "anyhow",
  "core-foundation",
@@ -3600,7 +3613,7 @@ dependencies = [
 [[package]]
 name = "mdrv-gpui-windows"
 version = "0.0.260925"
-source = "git+https://github.com/mdrv/gpui-ce?tag=mdrv-gpui-0.0.260925.5#66b109190b69152a0a7a03434be8631c1c3bbf64"
+source = "git+file:///Users/ua/Documents/impin-port/gpui-ce?branch=macos-port#9d40824696c7f72088bca4c4aa12eff80cb47b0a"
 dependencies = [
  "accesskit",
  "accesskit_windows",
@@ -3711,6 +3724,12 @@ dependencies = [
  "num-traits",
  "pxfm",
 ]
+
+[[package]]
+name = "multiversion_no_op"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
 
 [[package]]
 name = "naga"
@@ -3829,9 +3848,9 @@ checksum = "0676bb32a98c1a483ce53e500a81ad9c3d5b3f7c920c28c24e9cb0980d0b5bc8"
 
 [[package]]
 name = "notify-rust"
-version = "4.17.0"
+version = "4.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "50ff2e74231b72c832d82982193b417f230945be6bdb5575b251d941d31adb00"
+checksum = "fe430c879247371c47fdedd328ad4e301e6b30b533c5fd5db1c06d75253d0e46"
 dependencies = [
  "futures-lite",
  "log",
@@ -3903,9 +3922,9 @@ dependencies = [
 
 [[package]]
 name = "num-conv"
-version = "0.1.0"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51d515d32fb182ee37cda2ccdcb92950d6a3c2893aa280e540671c2cd0f3b1d9"
+checksum = "521739c6d2bac4aa25192232afe6841231376b2b26d4d9fae5ecf8ca5772e441"
 
 [[package]]
 name = "num-derive"
@@ -4336,9 +4355,9 @@ checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
 name = "ordered-float"
-version = "5.4.0"
+version = "5.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c860fd3227ca4ac3cc032e2cd20cba3f02ccdf4b610538f8ee6584d56bb62e96"
+checksum = "8c7c9e0d9b23589f26070720bac724174bfec1083e82f7854cdd0267518343c0"
 dependencies = [
  "num-traits",
 ]
@@ -4752,16 +4771,6 @@ name = "quick-error"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a993555f31e5a609f617c12db6250dedcac1b0a85076912c436e6fc9b2c8e6a3"
-
-[[package]]
-name = "quick-xml"
-version = "0.38.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b66c2058c55a409d601666cffe35f04333cf1013010882cec174a7467cd4e21c"
-dependencies = [
- "memchr",
- "serde",
-]
 
 [[package]]
 name = "quick-xml"
@@ -5422,6 +5431,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "simdutf8"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
+
+[[package]]
 name = "simplecss"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5827,12 +5842,12 @@ dependencies = [
 
 [[package]]
 name = "tauri-winrt-notification"
-version = "0.7.3"
+version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ed071c670382e85fc2f48ae706492d8c338f4f89bf72520d32f8abfe880aade"
+checksum = "f37a6c354fd28fc9e322ed9bd47e3959576dad28c9d58ea1cf888cce1c7ccb36"
 dependencies = [
  "thiserror 2.0.21",
- "windows 0.61.3",
+ "windows 0.62.2",
  "windows-version",
 ]
 
@@ -5923,9 +5938,9 @@ dependencies = [
 
 [[package]]
 name = "time"
-version = "0.3.45"
+version = "0.3.55"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9e442fc33d7fdb45aa9bfeb312c095964abdf596f7567261062b2a7107aaabd"
+checksum = "cdb87b95ec50ddfa440816d227a17b2ccbdda963a316a727fda0fc4334f7d134"
 dependencies = [
  "deranged",
  "num-conv",
@@ -5936,9 +5951,9 @@ dependencies = [
 
 [[package]]
 name = "time-core"
-version = "0.1.7"
+version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b36ee98fd31ec7426d599183e8fe26932a8dc1fb76ddb6214d05493377d34ca"
+checksum = "9e1c906769ad99c88eaa54e728060edef082f8e358ff32030cb7c7d315e81109"
 
 [[package]]
 name = "tiny-keccak"
@@ -6396,9 +6411,9 @@ checksum = "ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b"
 
 [[package]]
 name = "wasip2"
-version = "1.0.1+wasi-0.2.4"
+version = "1.0.4+wasi-0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0562428422c63773dad2c345a1882263bbf4d65cf3f42e90921f787ef5ad58e7"
+checksum = "b67efb37e106e55ce722a510d6b5f9c17f083e5fc79afc2badeb12cc313d9487"
 dependencies = [
  "wit-bindgen",
 ]
@@ -6499,9 +6514,9 @@ dependencies = [
 
 [[package]]
 name = "wayland-protocols"
-version = "0.32.12"
+version = "0.32.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "563a85523cade2429938e790815fd7319062103b9f4a2dc806e9b53b95982d8f"
+checksum = "23d0c813de3daa2ed6520af85a3bd49b0e722a3078506899aa9686fea58dc4b6"
 dependencies = [
  "bitflags 2.13.2",
  "wayland-backend",
@@ -6542,7 +6557,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "338e30461b3a2b67d70eb30a6d89f8e0c93a833e07d2ae89085cd070c4a00ac0"
 dependencies = [
  "proc-macro2",
- "quick-xml 0.41.0",
+ "quick-xml",
  "quote",
 ]
 
@@ -7221,9 +7236,6 @@ name = "winnow"
 version = "0.7.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df79d97927682d2fd8adb29682d1140b343be4ac0f08fd68b7765d9c059d3945"
-dependencies = [
- "memchr",
-]
 
 [[package]]
 name = "winnow"
@@ -7261,9 +7273,9 @@ dependencies = [
 
 [[package]]
 name = "wit-bindgen"
-version = "0.46.0"
+version = "0.57.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f17a85883d4e6d00e8a97c586de764dabcc06133f7f1d55dce5cdc070ad7fe59"
+checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 
 [[package]]
 name = "writeable"
@@ -7412,9 +7424,9 @@ dependencies = [
 
 [[package]]
 name = "zbus"
-version = "5.13.2"
+version = "5.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1bfeff997a0aaa3eb20c4652baf788d2dfa6d2839a0ead0b3ff69ce2f9c4bdd1"
+checksum = "5db4be7c075cb421e4b7ee645541604239bd243ba7c357511f4ff3a74b555907"
 dependencies = [
  "async-broadcast",
  "async-executor",
@@ -7439,7 +7451,7 @@ dependencies = [
  "uds_windows",
  "uuid",
  "windows-sys 0.61.2",
- "winnow 0.7.15",
+ "winnow 1.0.4",
  "zbus_macros",
  "zbus_names",
  "zvariant",
@@ -7471,14 +7483,14 @@ dependencies = [
 
 [[package]]
 name = "zbus_macros"
-version = "5.13.2"
+version = "5.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0bbd5a90dbe8feee5b13def448427ae314ccd26a49cac47905cafefb9ff846f1"
+checksum = "2990635d09ade6df1868f72f8cac69a876a90981e8bd3c40b1be413f8dc88f40"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
  "quote",
- "syn 2.0.119",
+ "syn 3.0.6",
  "zbus_names",
  "zvariant",
  "zvariant_utils",
@@ -7486,25 +7498,34 @@ dependencies = [
 
 [[package]]
 name = "zbus_names"
-version = "4.3.1"
+version = "4.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ffd8af6d5b78619bab301ff3c560a5bd22426150253db278f164d6cf3b72c50f"
+checksum = "d8bf88b4a3ff53e883001e0e0115b297a9d53c31b9c1edd2bfdd853e3428624e"
 dependencies = [
  "serde",
- "winnow 0.7.15",
+ "winnow 1.0.4",
  "zvariant",
 ]
 
 [[package]]
 name = "zbus_xml"
-version = "5.1.0"
+version = "5.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "441a0064125265655bccc3a6af6bef56814d9277ac83fce48b1cd7e160b80eac"
+checksum = "d1586c021a01ca0a9216dcd874e546382e156a5cbab5fab6cb5f10087e22682a"
 dependencies = [
- "quick-xml 0.38.4",
  "serde",
+ "winnow 1.0.4",
  "zbus_names",
  "zvariant",
+]
+
+[[package]]
+name = "zcheapstr"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d1afec51604565183aeb5c54c20aeab286120d4e4460f7f76e3e8bb8c0d99473"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -7768,41 +7789,42 @@ dependencies = [
 
 [[package]]
 name = "zvariant"
-version = "5.9.2"
+version = "5.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68b64ef4f40c7951337ddc7023dd03528a57a3ce3408ee9da5e948bd29b232c4"
+checksum = "c1d34c27cc6cdd1f458427519dd6b8612f7b7e3f7b9a0b2355d041dda9869147"
 dependencies = [
  "endi",
  "enumflags2",
  "serde",
  "serde_bytes",
- "winnow 0.7.15",
+ "winnow 1.0.4",
+ "zcheapstr",
  "zvariant_derive",
  "zvariant_utils",
 ]
 
 [[package]]
 name = "zvariant_derive"
-version = "5.9.2"
+version = "5.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "484d5d975eb7afb52cc6b929c13d3719a20ad650fea4120e6310de3fc55e415c"
+checksum = "864155e69b4352db0c7f374917bf45d1e0c8d17659c8b3dbf9795f3673f8c497"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
  "quote",
- "syn 2.0.119",
+ "syn 3.0.6",
  "zvariant_utils",
 ]
 
 [[package]]
 name = "zvariant_utils"
-version = "3.3.0"
+version = "4.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f75c23a64ef8f40f13a6989991e643554d9bef1d682a281160cf0c1bc389c5e9"
+checksum = "bad0294361a320b694a328460dc73add56c306150f5cb6bfafc44446120008a3"
 dependencies = [
  "proc-macro2",
  "quote",
  "serde",
- "syn 2.0.119",
- "winnow 0.7.15",
+ "syn 3.0.6",
+ "winnow 1.0.4",
 ]

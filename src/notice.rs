@@ -1,15 +1,15 @@
-//! The "No pinned image" pill: a centered, keyboard-less top-layer surface
+//! The "No pinned image" pill: a centered, keyboard-less overlay surface
 //! shown while zero pins exist. It gives the daemon a visible heartbeat and,
 //! with `QuitMode::Explicit`, a reason to survive its last window closing.
 
 use gpui::{
     App, Bounds, Context, DisplayId, Render, Window, WindowBackgroundAppearance, WindowBounds,
-    WindowHandle, WindowKind, WindowOptions, div, hsla, layer_shell::*, point, prelude::*, px,
-    size,
+    WindowHandle, WindowOptions, div, hsla, point, prelude::*, px, size,
 };
 
-/// The window is the pill: anchored to all four edges, a smaller surface is
-/// centered by the compositor on both axes.
+/// The pill is a fixed-size surface centered on its display: Wayland does it
+/// with all-edge anchors (origin ignored); macOS centers display-locally at
+/// open and never moves afterwards.
 const W: f32 = 230.0;
 const H: f32 = 44.0;
 
@@ -18,6 +18,15 @@ pub struct Notice;
 /// One instance lives for the whole daemon (hidden while pins exist);
 /// visibility is driven by `daemon::sync_notice`.
 pub fn spawn(cx: &mut App, display_id: Option<DisplayId>) -> anyhow::Result<WindowHandle<Notice>> {
+    let display_size = display_id.and_then(|id| {
+        cx.displays()
+            .into_iter()
+            .find(|d| d.id() == id)
+            .map(|d| d.bounds().size)
+    });
+    let origin = display_size.map_or(point(px(0.), px(0.)), |s| {
+        point((s.width - px(W)) / 2.0, (s.height - px(H)) / 2.0)
+    });
     let options = WindowOptions {
         titlebar: None,
         focus: false,
@@ -26,18 +35,10 @@ pub fn spawn(cx: &mut App, display_id: Option<DisplayId>) -> anyhow::Result<Wind
         window_background: WindowBackgroundAppearance::Transparent,
         display_id,
         window_bounds: Some(WindowBounds::Windowed(Bounds {
-            origin: point(px(0.), px(0.)),
+            origin,
             size: size(px(W), px(H)),
         })),
-        kind: WindowKind::LayerShell(LayerShellOptions {
-            namespace: "impin-notice".into(),
-            layer: Layer::Top,
-            anchor: Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
-            exclusive_zone: Some(px(-1.)),
-            margin: Some((px(0.), px(0.), px(0.), px(0.))),
-            keyboard_interactivity: KeyboardInteractivity::None,
-            ..Default::default()
-        }),
+        kind: crate::platform::notice_kind(),
         ..Default::default()
     };
     cx.open_window(options, |_, cx| cx.new(|_| Notice))
