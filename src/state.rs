@@ -1,4 +1,5 @@
-//! Persistent pin state: `~/.local/state/impin/pins.toml`.
+//! Persistent pin state (`$XDG_STATE_HOME/impin/pins.toml` on Linux,
+//! `%LOCALAPPDATA%\impin\pins.toml` on Windows).
 //!
 //! The daemon is the single writer; saves are atomic (tmp + rename) so a
 //! crash mid-write can never corrupt the file.
@@ -106,13 +107,27 @@ pub fn images_dir() -> PathBuf {
 }
 
 fn default_dir() -> PathBuf {
-    let base = std::env::var_os("XDG_STATE_HOME")
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state")
-        });
-    base.join("impin")
+    #[cfg(windows)]
+    {
+        // Spec 01: %LOCALAPPDATA%\impin (roaming-like per-user state).
+        let base = std::env::var_os("LOCALAPPDATA")
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join("AppData/Local")
+            });
+        base.join("impin")
+    }
+    #[cfg(not(windows))]
+    {
+        let base = std::env::var_os("XDG_STATE_HOME")
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state")
+            });
+        base.join("impin")
+    }
 }
 
 #[cfg(test)]

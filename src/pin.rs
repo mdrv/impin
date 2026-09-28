@@ -37,10 +37,12 @@ const CORNER: f32 = 12.0;
 const MOVE_POLL: Duration = Duration::from_millis(16);
 /// A fast fling exits the surface at once; keep following the cursor while
 /// it is outside, but end the gesture after this long without re-entry.
+#[cfg_attr(target_os = "windows", allow(dead_code))] // Windows ends on button state
 const GESTURE_LEAVE_GRACE: Duration = Duration::from_millis(250);
 /// While resizing, the cursor rides exactly on the moving edge — count the
 /// cursor as "inside" within this band so the leave-grace never fires
 /// mid-resize. Move gestures don't need it (the window follows the cursor).
+#[cfg_attr(target_os = "windows", allow(dead_code))] // Windows ends on button state
 const RESIZE_EDGE_BAND: f32 = 24.0;
 /// Lowest pin opacity (tracing over a canvas still needs a ghost visible).
 const MIN_OPACITY: f32 = 0.2;
@@ -160,11 +162,13 @@ impl ResizeDir {
 /// back and fast flings that exit the surface keep working). Pan never
 /// needs ground truth outside the surface, so plain move events drive it.
 enum Gesture {
+    #[cfg_attr(target_os = "windows", allow(dead_code))] // Windows ends on button state
     Move {
         /// `pos = global cursor + offset`, constant for the whole drag.
         offset: Point<Pixels>,
         left_at: Option<Instant>,
     },
+    #[cfg_attr(target_os = "windows", allow(dead_code))] // Windows ends on button state
     Resize {
         dir: ResizeDir,
         /// Position/size at press; edges that must stay put derive their
@@ -178,6 +182,7 @@ enum Gesture {
 }
 
 impl Gesture {
+    #[cfg_attr(target_os = "windows", allow(dead_code))] // Windows ends on button state
     fn left_at_mut(&mut self) -> Option<&mut Option<Instant>> {
         match self {
             Gesture::Move { left_at, .. } | Gesture::Resize { left_at, .. } => Some(left_at),
@@ -253,7 +258,13 @@ pub fn spawn(
         window_background: WindowBackgroundAppearance::Transparent,
         display_id,
         window_bounds: Some(WindowBounds::Windowed(Bounds {
+            // Wayland: the margin positions the surface, origin is ignored.
+            // Windows/macOS: bounds origin is global logical px — spawn on
+            // the pin's output directly (no flash at the primary's 0,0).
+            #[cfg(target_os = "linux")]
             origin: point(px(0.), px(0.)),
+            #[cfg(not(target_os = "linux"))]
+            origin: output_origin + pos,
             size: win_size,
         })),
         kind: crate::platform::pin_kind(pos),
@@ -392,20 +403,28 @@ impl Pin {
 
     /// Begin a pointer gesture; move/resize also start the ground-truth
     /// poll loop (pan is event-driven).
-    fn start_gesture(&mut self, gesture: Gesture, cx: &mut Context<Self>) {
-        if !matches!(gesture, Gesture::Pan { .. }) {
-            cx.spawn(async move |this, cx| {
-                loop {
-                    cx.background_executor().timer(MOVE_POLL).await;
-                    if !this.update(cx, Pin::gesture_tick).unwrap_or(false) {
-                        break;
-                    }
-                }
-            })
-            .detach();
-        }
+    fn start_gesture(&mut self, gesture: Gesture, window: &mut Window, cx: &mut Context<Self>) {
         self.gesture = Some(gesture);
         cx.notify(); // pick up the gesture cursor this frame
+        if matches!(self.gesture, Some(Gesture::Pan { .. })) {
+            return; // pan rides mouse-move deltas; no poll needed
+        }
+        // The poll leases through the window handle: root view + window in
+        // ONE lease. (Nesting a handle lease inside WeakEntity::update would
+        // double-lease the same entity — gpui aborts.)
+        let handle = window.window_handle().downcast::<Pin>().unwrap();
+        cx.spawn(async move |_, cx| {
+            loop {
+                cx.background_executor().timer(MOVE_POLL).await;
+                if !handle
+                    .update(cx, |pin, window, cx| pin.gesture_tick(window, cx))
+                    .unwrap_or(false)
+                {
+                    break;
+                }
+            }
+        })
+        .detach();
     }
 
     fn on_root_down(&mut self, ev: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -420,6 +439,7 @@ impl Pin {
                 offset,
                 left_at: None,
             },
+            window,
             cx,
         );
     }
@@ -431,6 +451,7 @@ impl Pin {
             Gesture::Pan {
                 grab: ev.position - self.pan,
             },
+            window,
             cx,
         );
     }
@@ -454,6 +475,7 @@ impl Pin {
                 start_size: self.size,
                 left_at: None,
             },
+            window,
             cx,
         );
     }
@@ -558,12 +580,40 @@ impl Pin {
         }
     }
 
+    /// GetAsyncKeyState ground truth for the poll tick (spike finding: the
+    /// up event can be swallowed when the release lands outside the window).
+    #[cfg(target_os = "windows")]
+    fn windows_button_down(button: MouseButton) -> bool {
+        use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
+
+        let vk: i32 = match button {
+            MouseButton::Left => 0x01,   // VK_LBUTTON
+            MouseButton::Middle => 0x04, // VK_MBUTTON
+            _ => return false,
+        };
+        // Parenthesized: `unsafe {}` at statement start would parse as a
+        // block statement, eating the `< 0`.
+        (unsafe { GetAsyncKeyState(vk) }) < 0 // negative (high bit) = down
+    }
+
     /// One cursor poll while a move/resize gesture is active. Returns false
     /// when over.
-    fn gesture_tick(&mut self, cx: &mut Context<Self>) -> bool {
+    #[allow(unused_variables)] // `window` only drives direct applies (Windows)
+    fn gesture_tick(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let Some(gesture) = &mut self.gesture else {
             return false;
         };
+        // Windows ground truth: capture keeps events flowing, but a release
+        // over another window can swallow the up event — the poll would
+        // chase the cursor forever. The button, not the pointer's
+        // whereabouts, ends the gesture (so no leave-grace either).
+        #[cfg(target_os = "windows")]
+        if !Self::windows_button_down(gesture.button()) {
+            debug!("pin gesture ended (button up, event missed)");
+            self.gesture = None;
+            self.changed(cx);
+            return false;
+        }
         let Some(cursor) = crate::platform::cursor_global() else {
             return true; // Hyprland IPC hiccup; keep the gesture alive
         };
@@ -574,25 +624,28 @@ impl Pin {
         // Pointer-leave detection from the same ground truth as the motion
         // (surface events stop when the cursor exits): grace-period the end
         // of the gesture so fast flings that exit the surface still follow.
-        let band = match gesture {
-            Gesture::Resize { .. } => px(RESIZE_EDGE_BAND),
-            _ => px(0.0),
-        };
-        let inside = local.x >= self.pos.x - band
-            && local.x < self.pos.x + self.size.width + band
-            && local.y >= self.pos.y - band
-            && local.y < self.pos.y + self.size.height + band;
-        if inside {
-            if let Some(left_at) = gesture.left_at_mut() {
-                *left_at = None;
-            }
-        } else if let Some(left_at) = gesture.left_at_mut() {
-            let left_at = left_at.get_or_insert(Instant::now());
-            if left_at.elapsed() > GESTURE_LEAVE_GRACE {
-                debug!("pin gesture ended (cursor left the surface)");
-                self.gesture = None;
-                self.changed(cx);
-                return false;
+        #[cfg(not(target_os = "windows"))]
+        {
+            let band = match *gesture {
+                Gesture::Resize { .. } => px(RESIZE_EDGE_BAND),
+                _ => px(0.0),
+            };
+            let inside = local.x >= self.pos.x - band
+                && local.x < self.pos.x + self.size.width + band
+                && local.y >= self.pos.y - band
+                && local.y < self.pos.y + self.size.height + band;
+            if inside {
+                if let Some(left_at) = gesture.left_at_mut() {
+                    *left_at = None;
+                }
+            } else if let Some(left_at) = gesture.left_at_mut() {
+                let left_at = left_at.get_or_insert(Instant::now());
+                if left_at.elapsed() > GESTURE_LEAVE_GRACE {
+                    debug!("pin gesture ended (cursor left the surface)");
+                    self.gesture = None;
+                    self.changed(cx);
+                    return false;
+                }
             }
         }
 
@@ -603,6 +656,16 @@ impl Pin {
                 let target = point(local.x + offset.x, local.y + offset.y);
                 if target != self.pos {
                     self.pos = target;
+                    // Windows: SetWindowPos is independent of the present
+                    // path — apply in the tick (frame-gated application
+                    // trails a frame at 60 Hz and reads as drag lag; the
+                    // spike proved the direct pipeline).
+                    #[cfg(target_os = "windows")]
+                    {
+                        window.set_position(self.output_origin + target);
+                        self.sent_pos = target;
+                    }
+                    #[cfg(not(target_os = "windows"))]
                     cx.notify(); // render applies the margin (frame-gated)
                 }
             }
@@ -636,9 +699,26 @@ impl Pin {
                     self.pos = pos;
                     // Keep the image gapless as the pin shrinks under it.
                     self.clamp_pan();
+                    #[cfg(target_os = "windows")]
+                    {
+                        // Direct apply (spike pipeline); sent_* advance so
+                        // the render gates skip. notify repaints the fit.
+                        window.resize(size);
+                        window.set_position(self.output_origin + pos);
+                        self.sent_size = size;
+                        self.sent_pos = pos;
+                        cx.notify();
+                    }
+                    #[cfg(not(target_os = "windows"))]
                     cx.notify(); // render applies resize (+ margin for L/T)
                 } else if pos != self.pos {
                     self.pos = pos; // min-clamp shift without a size change
+                    #[cfg(target_os = "windows")]
+                    {
+                        window.set_position(self.output_origin + pos);
+                        self.sent_pos = pos;
+                    }
+                    #[cfg(not(target_os = "windows"))]
                     cx.notify();
                 }
             }
@@ -702,10 +782,10 @@ impl Render for Pin {
             // macOS: top-left-origin global. (setFrameTopLeftPoint lands on
             // the runloop rather than staging into this frame's commit like
             // a layer-surface margin — a one-frame trailing edge at most.)
-            #[cfg(target_os = "macos")]
-            window.set_position(self.output_origin + p);
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(target_os = "linux")]
             window.set_margin((p.y, px(0.), px(0.), p.x));
+            #[cfg(not(target_os = "linux"))]
+            window.set_position(self.output_origin + p);
         }
         // A window-wide cursor request wins over hover styles for the frame,
         // so the gesture keeps its cursor even when the pointer outruns the

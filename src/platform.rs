@@ -1,7 +1,7 @@
 //! Per-platform windowing shims, so the rest of impin stays single-source.
 //!
-//! Two arms: Wayland + Hyprland (the original) and macOS AppKit. Both speak
-//! the same vocabulary:
+//! Three arms: Wayland + Hyprland (the original), macOS AppKit, and Windows
+//! (Win32; overlay PopUp windows). All speak the same vocabulary:
 //!
 //! - A display (`Mon`) lives in *global top-left-origin screen coordinates*
 //!   (Hyprland's global layout; `CGDisplayBounds` on macOS), with a stable
@@ -13,7 +13,7 @@
 
 use std::path::PathBuf;
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use anyhow::Context as _;
 use gpui::{App, DisplayId, Pixels, Point, WindowKind, point, px};
 
@@ -34,7 +34,7 @@ pub(crate) struct Mon {
 /// Pin window: an anchored top+left layer surface on Wayland (margins are
 /// its position); a non-activating popup panel on macOS (positioned via the
 /// `window_bounds` origin + `Window::set_position`).
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
 pub(crate) fn pin_kind(pos: Point<Pixels>) -> WindowKind {
     use gpui::layer_shell::*;
 
@@ -57,9 +57,18 @@ pub(crate) fn pin_kind(_pos: Point<Pixels>) -> WindowKind {
     WindowKind::PopUp
 }
 
+#[cfg(target_os = "windows")]
+pub(crate) fn pin_kind(_pos: Point<Pixels>) -> WindowKind {
+    // Topmost toolwindow (WS_EX_TOPMOST|WS_EX_TOOLWINDOW, borderless,
+    // SW_SHOWNOACTIVATE): the fork's PopUp on Windows is the never-steals-
+    // focus overlay. set_position re-asserts the topmost band, so raising
+    // by click falls out for free.
+    WindowKind::PopUp
+}
+
 /// Notice pill: centered by the compositor on Wayland (all-edge anchors);
-/// opened centered on macOS (fixed size, never moves afterwards).
-#[cfg(not(target_os = "macos"))]
+/// opened centered on macOS/Windows (fixed size, never moves afterwards).
+#[cfg(target_os = "linux")]
 pub(crate) fn notice_kind() -> WindowKind {
     use gpui::layer_shell::*;
 
@@ -75,6 +84,11 @@ pub(crate) fn notice_kind() -> WindowKind {
 }
 
 #[cfg(target_os = "macos")]
+pub(crate) fn notice_kind() -> WindowKind {
+    WindowKind::PopUp
+}
+
+#[cfg(target_os = "windows")]
 pub(crate) fn notice_kind() -> WindowKind {
     WindowKind::PopUp
 }
@@ -95,7 +109,7 @@ pub(crate) fn accessory_mode() {}
 
 // --- displays ---
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
 pub(crate) fn monitors(_cx: &App) -> Option<Vec<Mon>> {
     let json = run_capture("hyprctl", &["monitors", "-j"])?;
     let value: serde_json::Value = serde_json::from_str(&json).ok()?;
@@ -139,6 +153,60 @@ pub(crate) fn monitors(cx: &App) -> Option<Vec<Mon>> {
     )
 }
 
+/// EnumDisplayMonitors + per-monitor DPI: same logical space as the fork's
+/// `WindowsDisplay::bounds` (each origin/size divided by its own factor).
+/// Persistence key = the device name (`\\.\DISPLAY1`), stable across
+/// reboots (Q15); HMONITOR values are not.
+#[cfg(target_os = "windows")]
+pub(crate) fn monitors(_cx: &App) -> Option<Vec<Mon>> {
+    use windows::Win32::Foundation::{LPARAM, RECT};
+    use windows::Win32::Graphics::Gdi::{
+        EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO, MONITORINFOEXW,
+    };
+    use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
+
+    unsafe extern "system" fn collect(
+        hmon: HMONITOR,
+        _hdc: HDC,
+        _rect: *mut RECT,
+        data: LPARAM,
+    ) -> windows::core::BOOL {
+        let mons = data.0 as *mut Vec<Mon>;
+        let mut info = MONITORINFOEXW::default();
+        info.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+        if unsafe { GetMonitorInfoW(hmon, &mut info as *mut _ as *mut MONITORINFO) }.as_bool() {
+            // windows-rs 0.62: raw out-params (fork's 0.61 returns Result).
+            let (mut dx, mut dy) = (96u32, 96u32);
+            let _ = unsafe { GetDpiForMonitor(hmon, MDT_EFFECTIVE_DPI, &mut dx, &mut dy) };
+            let _ = dy;
+            let dpi = dx as f32;
+            let s = (dpi / 96.0).max(0.5);
+            let r = info.monitorInfo.rcMonitor;
+            let name = String::from_utf16_lossy(&info.szDevice)
+                .trim_end_matches('\0')
+                .to_string();
+            unsafe {
+                (*mons).push(Mon {
+                    name,
+                    x: r.left as f32 / s,
+                    y: r.top as f32 / s,
+                    w: (r.right - r.left) as f32 / s,
+                    h: (r.bottom - r.top) as f32 / s,
+                });
+            }
+        }
+        windows::core::BOOL(1)
+    }
+
+    let mut mons: Vec<Mon> = Vec::new();
+    unsafe {
+        EnumDisplayMonitors(None, None, Some(collect), LPARAM(&mut mons as *mut _ as _))
+            .ok()
+            .ok()?;
+    }
+    (!mons.is_empty()).then_some(mons)
+}
+
 /// The display the cursor is on.
 pub(crate) fn cursor_monitor(cx: &App) -> Option<Mon> {
     let cursor = cursor_global()?;
@@ -150,7 +218,7 @@ pub(crate) fn cursor_monitor(cx: &App) -> Option<Mon> {
 
 // --- cursor ground truth (the gesture poll loop's global truth) ---
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
 pub(crate) fn cursor_global() -> Option<Point<Pixels>> {
     let pos = run_capture("hyprctl", &["cursorpos"])?;
     let (x, y) = pos.trim().split_once(',')?;
@@ -158,6 +226,38 @@ pub(crate) fn cursor_global() -> Option<Point<Pixels>> {
         px(x.trim().parse::<f32>().ok()?),
         px(y.trim().parse::<f32>().ok()?),
     ))
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn cursor_global() -> Option<Point<Pixels>> {
+    use windows::Win32::Foundation::POINT;
+    use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+
+    // Physical px, top-left origin, y down. Dividing by the cursor
+    // monitor's DPI factor lands in the same logical space as `Mon`
+    // (each monitor's origin is divided by its own factor; within one
+    // monitor that transform is affine, so p/s is exact).
+    let mut p = POINT::default();
+    unsafe { GetCursorPos(&mut p) }.ok()?;
+    let scale = cursor_scale(p);
+    Some(point(px(p.x as f32 / scale), px(p.y as f32 / scale)))
+}
+
+/// DPI scale factor of the monitor at `p` (Windows; 1.0 if undetectable).
+#[cfg(target_os = "windows")]
+fn cursor_scale(p: windows::Win32::Foundation::POINT) -> f32 {
+    use windows::Win32::Graphics::Gdi::{MonitorFromPoint, MONITOR_DEFAULTTONEAREST};
+    use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
+
+    let mon = unsafe { MonitorFromPoint(p, MONITOR_DEFAULTTONEAREST) };
+    if mon.is_invalid() {
+        return 1.0;
+    }
+    // windows-rs 0.62: raw out-params (the fork's 0.61 returns a Result).
+    let (mut dx, mut dy) = (96u32, 96u32);
+    let _ = unsafe { GetDpiForMonitor(mon, MDT_EFFECTIVE_DPI, &mut dx, &mut dy) };
+    let _ = dy;
+    (dx as f32 / 96.0).max(0.5)
 }
 
 #[cfg(target_os = "macos")]
@@ -183,8 +283,8 @@ pub(crate) fn cursor_global() -> Option<Point<Pixels>> {
 
 /// Clipboard image (or a copied image file) -> content-addressed path under
 /// the images store; the `clipboard` verb pins it.
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn clipboard_image_path() -> anyhow::Result<PathBuf> {
+#[cfg(target_os = "linux")]
+pub(crate) fn clipboard_image_path(_cx: &App) -> anyhow::Result<PathBuf> {
     for ty in ["image/png", "image/jpeg"] {
         let Some(bytes) = run_capture_bytes("wl-paste", &["-t", ty]) else {
             continue;
@@ -203,7 +303,7 @@ pub(crate) fn clipboard_image_path() -> anyhow::Result<PathBuf> {
     anyhow::bail!("clipboard holds no image (copy image data or an image file)")
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
 fn clipboard_file_path() -> Option<PathBuf> {
     for ty in ["text/uri-list", "text/plain;charset=utf-8", "text/plain"] {
         let Some(bytes) = run_capture_bytes("wl-paste", &["-t", ty]) else {
@@ -225,7 +325,7 @@ fn clipboard_file_path() -> Option<PathBuf> {
 }
 
 #[cfg(target_os = "macos")]
-pub(crate) fn clipboard_image_path() -> anyhow::Result<PathBuf> {
+pub(crate) fn clipboard_image_path(_cx: &App) -> anyhow::Result<PathBuf> {
     use objc2_app_kit::{NSPasteboard, NSPasteboardTypePNG, NSPasteboardTypeTIFF};
 
     unsafe {
@@ -252,6 +352,56 @@ pub(crate) fn clipboard_image_path() -> anyhow::Result<PathBuf> {
                 return store_clipboard_bytes(&png.into_inner(), "png");
             }
             return store_clipboard_bytes(&bytes, ext);
+        }
+    }
+    anyhow::bail!("clipboard holds no image (copy image data or an image file)")
+}
+
+/// `cx.read_from_clipboard()` (fork: CF_DIB arrives BMP-wrapped, PNG/JPEG
+/// raw). Everything normalizes to PNG for the store (like macOS TIFF); a
+/// copied image *file* (Explorer copy) pins without duplicating bytes.
+#[cfg(target_os = "windows")]
+pub(crate) fn clipboard_image_path(cx: &App) -> anyhow::Result<PathBuf> {
+    use gpui::{ClipboardEntry, ImageFormat};
+
+    let Some(item) = cx.read_from_clipboard() else {
+        anyhow::bail!("clipboard holds no image (copy image data or an image file)");
+    };
+    for entry in item.entries() {
+        match entry {
+            ClipboardEntry::Image(image) => {
+                let png = match image.format {
+                    ImageFormat::Png => image.bytes().to_vec(),
+                    other => {
+                        let fmt = match other {
+                            ImageFormat::Jpeg => image::ImageFormat::Jpeg,
+                            ImageFormat::Gif => image::ImageFormat::Gif,
+                            ImageFormat::Bmp => image::ImageFormat::Bmp,
+                            ImageFormat::Tiff => image::ImageFormat::Tiff,
+                            ImageFormat::Webp => image::ImageFormat::WebP,
+                            _ => anyhow::bail!("unsupported clipboard image format {other:?}"),
+                        };
+                        let decoded = image::load_from_memory_with_format(image.bytes(), fmt)
+                            .context("clipboard image decode")?;
+                        let mut png = Vec::new();
+                        decoded
+                            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+                            .context("clipboard PNG encode")?;
+                        png
+                    }
+                };
+                return store_clipboard_bytes(&png, "png");
+            }
+            ClipboardEntry::ExternalPaths(paths) => {
+                if let Some(path) = paths
+                    .paths()
+                    .iter()
+                    .find(|p| p.is_file() && crate::content::dims(p).is_ok())
+                {
+                    return Ok(path.clone());
+                }
+            }
+            ClipboardEntry::String(_) => {}
         }
     }
     anyhow::bail!("clipboard holds no image (copy image data or an image file)")
@@ -455,32 +605,115 @@ unsafe fn k_cf_run_loop_common_modes() -> *mut std::ffi::c_void {
     unsafe { kCFRunLoopCommonModes }
 }
 
-#[cfg(not(target_os = "macos"))]
+/// Windows: `RegisterHotKey` on a dedicated message-loop thread (no
+/// accessibility permissions needed). Default win+ctrl+i; `IMPIN_HOTKEY`
+/// override (e.g. `win+alt+k`, `ctrl+shift+p`); `win` = the Windows key.
+#[cfg(target_os = "windows")]
+pub(crate) fn install_toggle_hotkey(handler: Box<dyn Fn() + Send + Sync>) -> bool {
+    use std::sync::OnceLock;
+
+    use windows::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, HOT_KEY_MODIFIERS};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        DispatchMessageW, GetMessageW, TranslateMessage, MSG, WM_HOTKEY,
+    };
+
+    static HANDLER: OnceLock<Box<dyn Fn() + Send + Sync>> = OnceLock::new();
+
+    /// `IMPIN_HOTKEY` spec: `+`-separated modifiers + one key, e.g.
+    /// `win+ctrl+i`. Keys: single letters and digits (layout-independent
+    /// virtual keys).
+    fn parse_combo(spec: &str) -> Option<(i32, HOT_KEY_MODIFIERS, String)> {
+        const MOD_ALT: u32 = 1;
+        const MOD_CONTROL: u32 = 2;
+        const MOD_SHIFT: u32 = 4;
+        const MOD_WIN: u32 = 8;
+        let mut mods = 0u32;
+        let mut key: Option<i32> = None;
+        for token in spec.to_ascii_lowercase().split('+') {
+            match token {
+                "win" | "super" | "meta" => mods |= MOD_WIN,
+                "ctrl" | "control" => mods |= MOD_CONTROL,
+                "alt" => mods |= MOD_ALT,
+                "shift" => mods |= MOD_SHIFT,
+                letter if letter.len() == 1 && letter.as_bytes()[0].is_ascii_alphabetic() => {
+                    key = Some(letter.as_bytes()[0].to_ascii_uppercase() as i32);
+                }
+                digit if digit.len() == 1 && digit.as_bytes()[0].is_ascii_digit() => {
+                    key = Some(digit.as_bytes()[0] as i32);
+                }
+                _ => return None,
+            }
+        }
+        Some((key?, HOT_KEY_MODIFIERS(mods), spec.to_string()))
+    }
+
+    let _ = HANDLER.set(handler);
+    let (vk, mods, label) = match std::env::var("IMPIN_HOTKEY") {
+        Ok(spec) if !spec.trim().is_empty() => match parse_combo(spec.trim()) {
+            Some(combo) => combo,
+            None => {
+                log::warn!(
+                    "IMPIN_HOTKEY={spec:?} not understood (want e.g. win+ctrl+i); using win+ctrl+i"
+                );
+                (0x49, HOT_KEY_MODIFIERS(2 | 8), "win+ctrl+i".to_string())
+            }
+        },
+        _ => (0x49, HOT_KEY_MODIFIERS(2 | 8), "win+ctrl+i".to_string()),
+    };
+
+    // The thread dies only with the process; GetMessageW parks it for free.
+    std::thread::Builder::new()
+        .name("impin-hotkey".into())
+        .spawn(move || unsafe {
+            if RegisterHotKey(None, 1, mods, vk as u32).is_err() {
+                log::warn!("RegisterHotKey failed; global toggle unavailable");
+                return;
+            }
+            log::info!("global toggle hotkey registered: {label} (RegisterHotKey)");
+            let mut msg = MSG::default();
+            while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+                if msg.message == WM_HOTKEY
+                    && let Some(handler) = HANDLER.get()
+                {
+                    let result =
+                        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handler()));
+                    if result.is_err() {
+                        log::warn!("toggle hotkey handler panicked (suppressed)");
+                    }
+                }
+                let _ = TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+        })
+        .is_ok()
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub(crate) fn install_toggle_hotkey(_handler: Box<dyn Fn() + Send + Sync>) -> bool {
     false // compositor-side binding (see README)
 }
 
 // --- Hyprland helpers (Linux arm only) ---
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
 fn run_capture_bytes(program: &str, args: &[&str]) -> Option<Vec<u8>> {
     let out = std::process::Command::new(program).args(args).output().ok()?;
     out.status.success().then(|| out.stdout)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
 fn run_capture(program: &str, args: &[&str]) -> Option<String> {
     let out = std::process::Command::new(program).args(args).output().ok()?;
     Some(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
 fn num(value: &serde_json::Value, key: &str) -> Option<f32> {
     value.get(key)?.as_f64().map(|v| v as f32)
 }
 
 /// Minimal %XX decoding for file:// URIs (spaces are the common case).
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
 fn percent_decode(raw: &str) -> PathBuf {
     if !raw.contains('%') {
         return PathBuf::from(raw);

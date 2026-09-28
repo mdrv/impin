@@ -1,7 +1,10 @@
-//! impin daemon: owns the pin windows and the CLI socket
-//! (`$XDG_RUNTIME_DIR/impin.sock`). Single writer for the state file.
+//! impin daemon: owns the pin windows and the CLI transport (Unix socket
+//! `$XDG_RUNTIME_DIR/impin.sock`, named pipe `\\.\pipe\impin` on Windows).
+//! Single writer for the state file.
 
+#[cfg(unix)]
 use std::io::{Read, Write};
+#[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -20,6 +23,9 @@ use crate::notice::{self, Notice};
 use crate::pin::{self, PinEvent};
 use crate::platform::{self, Mon};
 use crate::state::{PinRecord, Store};
+
+#[cfg(windows)]
+use windows::Win32::Foundation::HANDLE;
 
 enum Ipc {
     Toggle,
@@ -67,18 +73,10 @@ pub fn run() -> anyhow::Result<()> {
     // Accessory before any window exists: no Dock icon, no menu bar.
     platform::accessory_mode();
     let sock = socket_path();
-    if sock.exists() {
-        match UnixStream::connect(&sock) {
-            Ok(_) => anyhow::bail!(
-                "another impin daemon is already running ({})",
-                sock.display()
-            ),
-            Err(_) => {
-                std::fs::remove_file(&sock).ok(); // stale socket
-            }
-        }
-    }
-    let listener = UnixListener::bind(&sock)?;
+    #[cfg(unix)]
+    let listener = bind_transport(&sock)?;
+    #[cfg(windows)]
+    bind_transport(&sock)?;
     let (tx, mut rx) = unbounded::<Ipc>();
 
     // Quit only on `impin stop`: deleting the last pin must leave a live
@@ -86,12 +84,13 @@ pub fn run() -> anyhow::Result<()> {
     application()
         .with_quit_mode(QuitMode::Explicit)
         .run(move |cx: &mut App| {
-            // Global toggle hotkey (macOS): Ctrl+Cmd+I by default, override
-            // with IMPIN_HOTKEY (e.g. `cmd+i`). Registered here — after
-            // AppKit launch — via an active CGEventTap. Forwards through the
-            // same channel as the CLI's `toggle` verb; debounced because a
-            // held combo auto-repeats ~30 taps/s.
-            #[cfg(target_os = "macos")]
+            // Global toggle hotkey (macOS CGEventTap, Windows RegisterHotKey
+            // thread): macOS Ctrl+Cmd+I / Windows Win+Ctrl+I by default,
+            // override with IMPIN_HOTKEY (e.g. `cmd+i` / `win+alt+k`).
+            // Registered here — after app/initialization — and forwarded
+            // through the same channel as the CLI's `toggle` verb;
+            // debounced because a held combo auto-repeats ~30 taps/s.
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             {
                 let hotkey_tx = tx.clone();
                 let last_fire = Arc::new(AtomicU64::new(0));
@@ -108,7 +107,11 @@ pub fn run() -> anyhow::Result<()> {
                     let _ = hotkey_tx.unbounded_send(Ipc::Toggle);
                 }));
             }
+            #[cfg(unix)]
             std::thread::spawn(move || accept_loop(listener, tx));
+            // Windows: the pipe server loop creates its own instances.
+            #[cfg(windows)]
+            std::thread::spawn(move || pipe_accept_loop(tx));
 
             let store = Store::new();
             let records = match store.load() {
@@ -526,7 +529,7 @@ fn add_pin(app: &mut App, path: PathBuf) -> anyhow::Result<String> {
 
 /// `clipboard` verb: pin whatever image the clipboard holds.
 fn add_clipboard(app: &mut App) -> anyhow::Result<String> {
-    let path = platform::clipboard_image_path()?;
+    let path = platform::clipboard_image_path(app)?;
     add_pin(app, path)
 }
 
@@ -539,6 +542,7 @@ fn clamp_to_mon(record: &mut PinRecord, mon: &Mon) {
     record.y = record.y.clamp(0.0, f64::from(mon.h) - record.h);
 }
 
+#[cfg(unix)]
 fn accept_loop(listener: UnixListener, tx: UnboundedSender<Ipc>) {
     for stream in listener.incoming() {
         let Ok(mut stream) = stream else { break };
@@ -546,27 +550,160 @@ fn accept_loop(listener: UnixListener, tx: UnboundedSender<Ipc>) {
         if stream.read_to_string(&mut text).is_err() {
             continue;
         }
-        let reply: anyhow::Result<String> = match text.trim() {
-            "toggle" => forward(&tx, Ipc::Toggle),
-            "show" => forward(&tx, Ipc::Show),
-            "hide" => forward(&tx, Ipc::Hide),
-            "stop" => forward(&tx, Ipc::Stop),
-            "status" => Ok("running".into()),
-            "clipboard" => ask(&tx, |resp| Ipc::Clipboard { resp }),
-            other => match other.strip_prefix("add ") {
-                Some(path) => {
-                    let path = PathBuf::from(path.trim());
-                    ask(&tx, |resp| Ipc::Add { path, resp })
-                }
-                None => Err(anyhow::anyhow!("unknown verb")),
-            },
-        };
-        let line = match reply {
-            Ok(payload) => format!("ok {payload}\n"),
-            Err(err) => format!("err {err:#}\n"),
-        };
+        let line = dispatch_verb(&text, &tx);
         let _ = stream.write_all(line.as_bytes());
     }
+}
+
+/// Verb table shared by both transports; returns the wire reply line.
+fn dispatch_verb(text: &str, tx: &UnboundedSender<Ipc>) -> String {
+    let reply: anyhow::Result<String> = match text.trim() {
+        "toggle" => forward(tx, Ipc::Toggle),
+        "show" => forward(tx, Ipc::Show),
+        "hide" => forward(tx, Ipc::Hide),
+        "stop" => forward(tx, Ipc::Stop),
+        "status" => Ok("running".into()),
+        "clipboard" => ask(tx, |resp| Ipc::Clipboard { resp }),
+        other => match other.strip_prefix("add ") {
+            Some(path) => {
+                let path = PathBuf::from(path.trim());
+                ask(tx, |resp| Ipc::Add { path, resp })
+            }
+            None => Err(anyhow::anyhow!("unknown verb")),
+        },
+    };
+    match reply {
+        Ok(payload) => format!("ok {payload}\n"),
+        Err(err) => format!("err {err:#}\n"),
+    }
+}
+
+/// Single-instance probe + listener bind.
+///
+/// Unix: stale-socket probe — a connect that fails means no live daemon is
+/// listening, so the socket file is stale and removed before binding.
+#[cfg(unix)]
+fn bind_transport(sock: &std::path::Path) -> anyhow::Result<UnixListener> {
+    if sock.exists() {
+        match UnixStream::connect(sock) {
+            Ok(_) => anyhow::bail!(
+                "another impin daemon is already running ({})",
+                sock.display()
+            ),
+            Err(_) => {
+                std::fs::remove_file(sock).ok(); // stale socket
+            }
+        }
+    }
+    Ok(UnixListener::bind(sock)?)
+}
+
+/// Windows: a named mutex is the single-instance marker (the kernel
+/// releases it when the process dies — no stale files to clean). The pipe
+/// itself needs no bind; client connect failures mean "not running".
+#[cfg(windows)]
+fn bind_transport(_sock: &std::path::Path) -> anyhow::Result<()> {
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError};
+    use windows::Win32::System::Threading::CreateMutexW;
+
+    let name: Vec<u16> = "Local\\impin-daemon\0".encode_utf16().collect();
+    // Held for the process lifetime: windows-rs HANDLE has no Drop, and we
+    // never CloseHandle, so the kernel object lives until exit.
+    let _mutex = unsafe { CreateMutexW(None, false, PCWSTR(name.as_ptr())) }
+        .map_err(|e| anyhow::anyhow!("CreateMutexW: {e}"))?;
+    if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
+        anyhow::bail!("another impin daemon is already running");
+    }
+    Ok(())
+}
+
+/// Windows named-pipe server: `\\.\pipe\impin`, byte mode, one client at a
+/// time (CLI verbs are short; a second concurrent CLI gets "not running" —
+/// acceptable for v0.2). Wire protocol: u32-LE length + verb (a byte pipe
+/// can't be half-closed like a Unix socket's shutdown(Write), so the length
+/// ends the verb); reply + FlushFileBuffers + Disconnect gives the client
+/// its EOF.
+#[cfg(windows)]
+fn pipe_accept_loop(tx: UnboundedSender<Ipc>) {
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::{ERROR_PIPE_CONNECTED, CloseHandle, GetLastError};
+    use windows::Win32::Storage::FileSystem::{FlushFileBuffers, PIPE_ACCESS_DUPLEX, WriteFile};
+    use windows::Win32::System::Pipes::{
+        ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, PIPE_READMODE_BYTE,
+        PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES,
+    };
+
+    const PIPE_NAME: &str = "\\\\.\\pipe\\impin";
+    let name: Vec<u16> = PIPE_NAME.encode_utf16().collect();
+    loop {
+        // Returns the bare handle; INVALID_HANDLE_VALUE on failure.
+        let pipe: HANDLE = unsafe {
+            CreateNamedPipeW(
+                PCWSTR(name.as_ptr()),
+                PIPE_ACCESS_DUPLEX,
+                PIPE_TYPE_BYTE | PIPE_READMODE_BYTE,
+                PIPE_UNLIMITED_INSTANCES,
+                4096,
+                4096,
+                0,
+                None,
+            )
+        };
+        if pipe.is_invalid() {
+            log::error!(
+                "CreateNamedPipeW failed ({}); IPC disabled",
+                unsafe { GetLastError() }.0
+            );
+            std::process::exit(1);
+        }
+        // Blocks until a client connects (CreateFile on the CLI side); a
+        // client that raced in first surfaces as ERROR_PIPE_CONNECTED.
+        if let Err(err) = unsafe { ConnectNamedPipe(pipe, None) }
+            && err.code() != windows::core::HRESULT(ERROR_PIPE_CONNECTED.0 as i32)
+        {
+            let _ = unsafe { DisconnectNamedPipe(pipe) };
+            let _ = unsafe { CloseHandle(pipe) };
+            continue;
+        }
+        let verb = read_verb(pipe);
+        let line = dispatch_verb(&verb, &tx);
+        let mut written: u32 = 0;
+        let _ = unsafe { WriteFile(pipe, Some(line.as_bytes()), Some(&mut written), None) };
+        let _ = unsafe { FlushFileBuffers(pipe) };
+        let _ = unsafe { DisconnectNamedPipe(pipe) };
+        let _ = unsafe { CloseHandle(pipe) };
+    }
+}
+
+/// u32-LE length + verb bytes; a short/garbled read just yields an empty
+/// (unknown) verb.
+#[cfg(windows)]
+fn read_verb(pipe: HANDLE) -> String {
+    use windows::Win32::Storage::FileSystem::ReadFile;
+
+    let read_exact = |buf: &mut [u8]| -> bool {
+        let mut filled = 0;
+        while filled < buf.len() {
+            let mut n: u32 = 0;
+            let ok = unsafe { ReadFile(pipe, Some(&mut buf[filled..]), Some(&mut n), None) }.is_ok();
+            if !ok || n == 0 {
+                return false; // client went away mid-verb
+            }
+            filled += n as usize;
+        }
+        true
+    };
+    let mut len_buf = [0u8; 4];
+    if !read_exact(&mut len_buf) {
+        return String::new();
+    }
+    let len = u32::from_le_bytes(len_buf).min(64 * 1024) as usize;
+    let mut verb = vec![0u8; len];
+    if !read_exact(&mut verb) {
+        return String::new();
+    }
+    String::from_utf8_lossy(&verb).into_owned()
 }
 
 fn forward(tx: &UnboundedSender<Ipc>, msg: Ipc) -> anyhow::Result<String> {
