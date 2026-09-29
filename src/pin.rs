@@ -3,7 +3,8 @@
 //! `Window::set_position` on macOS. Left-drag moves, edge/corner-drag
 //! resizes (ground-truth poll mechanics proven in upperadd), middle/Ctrl-drag
 //! pans, Ctrl+wheel zooms; `[`/`]` opacity, `,`/`.` corner radius,
-//! `0`/`1`/`-`/`=` zoom, double-click fits, `Q`/`Delete` deletes.
+//! `0`/`1`/`-`/`=` zoom, `B` toggles the backdrop/border layer (image only),
+//! double-click fits, `Q`/`Delete` deletes.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -233,6 +234,11 @@ pub struct Pin {
     pan: Point<Pixels>,
     opacity: f32,
     radius: f32,
+    /// Backdrop/border layer visible (`B` toggles). Hiding leaves the bare
+    /// image — the reference-image use case — and is the diagnostic for
+    /// "opacity fades feel late": the near-opaque backdrop sits behind the
+    /// image and occludes until the fade is deep.
+    bg: bool,
     gesture: Option<Gesture>,
 }
 
@@ -324,6 +330,7 @@ impl Pin {
             pan: point(px(record.pan_x as f32), px(record.pan_y as f32)),
             opacity: record.opacity.clamp(MIN_OPACITY, 1.0),
             radius: record.radius as f32,
+            bg: record.bg,
             gesture: None,
         };
         pin.clamp_pan();
@@ -396,6 +403,7 @@ impl Pin {
             pan_y: f64::from(f32::from(self.pan.y)),
             opacity: self.opacity,
             radius: f64::from(self.radius),
+            bg: self.bg,
         }
     }
 
@@ -561,6 +569,10 @@ impl Pin {
             }
             "." => {
                 self.radius = (self.radius + RADIUS_STEP).min(max_radius);
+                self.changed(cx);
+            }
+            "b" => {
+                self.bg = !self.bg;
                 self.changed(cx);
             }
             "0" => {
@@ -839,13 +851,10 @@ impl Render for Pin {
                 .child("missing")
                 .into_any_element(),
         };
-        div()
+        let mut root = div()
             .id(("pin", self.id))
             .size_full()
             .relative()
-            .bg(hsla(220.0, 0.2, 0.10, 0.92 * self.opacity))
-            .border_1()
-            .border_color(hsla(0.0, 0.0, 1.0, 0.18 * self.opacity))
             .rounded(px(self.radius))
             .overflow_hidden()
             .track_focus(&self.focus)
@@ -865,6 +874,16 @@ impl Render for Pin {
             .child(self.render_corner(Corner::TopLeft, cx))
             .child(self.render_corner(Corner::TopRight, cx))
             .child(self.render_corner(Corner::BottomLeft, cx))
-            .child(self.render_corner(Corner::BottomRight, cx))
+            .child(self.render_corner(Corner::BottomRight, cx));
+        // Backdrop/border only while the layer is on (`B` toggles). Applied
+        // to the finished builder so the invisible edge/corner hit strips
+        // above are unaffected.
+        if self.bg {
+            root = root
+                .bg(hsla(220.0, 0.2, 0.10, 0.92 * self.opacity))
+                .border_1()
+                .border_color(hsla(0.0, 0.0, 1.0, 0.18 * self.opacity));
+        }
+        root
     }
 }

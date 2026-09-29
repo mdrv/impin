@@ -57,12 +57,22 @@ Windows deltas appear here. v0.2.0 = the **cross-platform release**
   gestures (move/resize/pan/zoom/opacity/radius, keys), decode pipeline
   (pure-Rust AVIF/JXL/SVG arms carry over unchanged), persistence,
   clamp-at-spawn + toggle-on, missing-file placeholders.
+- **Addition on all platforms (owner-approved during W2 testing): `B`
+  toggles the backdrop/border layer** (persisted per pin, `bg` in
+  PinRecord). Motivated by Windows testing: the near-opaque backdrop sits
+  behind the image, so group fades read as "backdrop still opaque" until
+  deep in the fade — and a bare-image mode is the reference-tool use case.
 - **Windows 10 1809+ x64 only** (`x86_64-pc-windows-msvc`), per-monitor
   DPI v2 (fork provides). No aarch64 (no hardware). No acrylic/mica/DWM
   effects — translucency exactly as Linux. 00's out-of-scope list carries
   verbatim.
 - New dep `windows` (narrow features) in impin: pipes, hotkey, cursor —
   one-line justification in the commit.
+- Windows findings folded back into the shared code (all platforms benefit):
+  `is_resizable: false` on pins (the Windows hit-test installs a native
+  top-resize band on titlebar-less resizable windows that hijacks our edge
+  gestures); per-element opacity instead of group `.opacity()`; fork `.10`
+  (DWMWA_COLOR_NONE) + `.11` (DWMNCRP_DISABLED) PopUp DWM-frame opt-out.
 
 ## Release & packaging
 

@@ -513,6 +513,7 @@ fn add_pin(app: &mut App, path: PathBuf) -> anyhow::Result<String> {
         pan_y: 0.0,
         opacity: 1.0,
         radius: 0.0,
+        bg: true,
     };
     clamp_to_mon(&mut record, &mon);
 

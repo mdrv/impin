@@ -34,6 +34,9 @@ pub struct PinRecord {
     pub opacity: f32,
     #[serde(default)]
     pub radius: f64,
+    /// Backdrop/border layer visible (pin `B` toggles; false = bare image).
+    #[serde(default = "default_bg")]
+    pub bg: bool,
 }
 
 fn default_zoom() -> f32 {
@@ -42,6 +45,10 @@ fn default_zoom() -> f32 {
 
 fn default_opacity() -> f32 {
     1.0
+}
+
+fn default_bg() -> bool {
+    true
 }
 
 /// The on-disk document: TOML roots must be tables, so records live under
@@ -167,6 +174,7 @@ mod tests {
             pan_y: 0.0,
             opacity: 1.0,
             radius: 0.0,
+            bg: true,
         }];
         store.save(&pins).unwrap();
         assert!(!dir.join("pins.toml.tmp").exists(), "tmp must be renamed");
