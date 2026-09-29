@@ -453,7 +453,12 @@ fn handle_pin_event(app: &mut App, ev: PinEvent) {
                     .timer(Duration::from_millis(16))
                     .await;
                 cx.update(|app| {
-                    let _ = handle.update(app, |_, window, _| window.set_visible(true));
+                    // The pin may have been deleted within the tick (click
+                    // sends Raise, a fast `q` deletes); don't touch a closed
+                    // window — gpui would log "window not found".
+                    if app.global::<PinsGlobal>().entries.iter().any(|e| e.id == id) {
+                        let _ = handle.update(app, |_, window, _| window.set_visible(true));
+                    }
                 });
             })
             .detach();
