@@ -97,12 +97,15 @@ pub(crate) fn notice_kind() -> WindowKind {
 
 /// Keep the daemon out of the Dock and the cmd-tab switcher (the moral
 /// equivalent of a compositor session without a toplevel).
+///
+/// macOS: deliberately EMPTY — the Accessory policy goes through
+/// `application().with_activation_policy` in daemon.rs. Calling
+/// `NSApplication::sharedApplication` here (as this once did) creates
+/// the shared app as plain `NSApplication` before gpui runs, and the
+/// fork's `GPUIApplication` ivars write then corrupts the heap
+/// (guard-malloc-verified 2026-09-29).
 #[cfg(target_os = "macos")]
-pub(crate) fn accessory_mode() {
-    let mtm = objc2::MainThreadMarker::new().expect("impin daemon runs on the main thread");
-    let app = objc2_app_kit::NSApplication::sharedApplication(mtm);
-    app.setActivationPolicy(objc2_app_kit::NSApplicationActivationPolicy::Accessory);
-}
+pub(crate) fn accessory_mode() {}
 
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn accessory_mode() {}

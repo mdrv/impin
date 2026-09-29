@@ -84,8 +84,15 @@ pub fn run() -> anyhow::Result<()> {
 
     // Quit only on `impin stop`: deleting the last pin must leave a live
     // daemon (the notice pill keeps a window alive meanwhile).
-    application()
-        .with_quit_mode(QuitMode::Explicit)
+    // macOS: accessory policy via gpui's builder — NOT by touching
+    // NSApplication early (instantiating the shared app before
+    // application().run() makes the fork's GPUIApplication ivars write
+    // out of bounds; see platform::accessory_mode docs).
+    #[cfg(target_os = "macos")]
+    let app = application().with_activation_policy(gpui::MacActivationPolicy::Accessory);
+    #[cfg(not(target_os = "macos"))]
+    let app = application();
+    app.with_quit_mode(QuitMode::Explicit)
         .run(move |cx: &mut App| {
             // Global toggle hotkey (macOS CGEventTap, Windows RegisterHotKey
             // thread): macOS Ctrl+Cmd+I / Windows Win+Ctrl+I by default,

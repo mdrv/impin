@@ -8,8 +8,8 @@ license = "MIT"
 repository = "https://github.com/mdrv/impin"
 
 [dependencies]
-gpui = { package = "mdrv-gpui-ce", git = "https://github.com/mdrv/gpui-ce", tag = "mdrv-gpui-0.0.260925.11" }
-gpui_platform = { package = "mdrv-gpui-platform", git = "https://github.com/mdrv/gpui-ce", tag = "mdrv-gpui-0.0.260925.11" }
+gpui = { package = "mdrv-gpui-ce", git = "https://github.com/mdrv/gpui-ce", tag = "mdrv-gpui-0.0.260929.1" }
+gpui_platform = { package = "mdrv-gpui-platform", git = "https://github.com/mdrv/gpui-ce", tag = "mdrv-gpui-0.0.260929.1" }
 anyhow = "1"
 blake3 = "1" # content-address clipboard image store (spec)
 clap = { version = "4", features = ["derive"] }
@@ -26,12 +26,12 @@ zenavif = "0.1.6"
 zenpixels = "0.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-gpui_platform = { package = "mdrv-gpui-platform", git = "https://github.com/mdrv/gpui-ce", tag = "mdrv-gpui-0.0.260925.11", features = [
+gpui_platform = { package = "mdrv-gpui-platform", git = "https://github.com/mdrv/gpui-ce", tag = "mdrv-gpui-0.0.260929.1", features = [
 	"wayland",
 ] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-gpui_platform = { package = "mdrv-gpui-platform", git = "https://github.com/mdrv/gpui-ce", tag = "mdrv-gpui-0.0.260925.11", features = [
+gpui_platform = { package = "mdrv-gpui-platform", git = "https://github.com/mdrv/gpui-ce", tag = "mdrv-gpui-0.0.260929.1", features = [
 	"font-kit",
 ] }
 objc2 = "0.6"
