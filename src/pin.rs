@@ -12,10 +12,10 @@ use std::time::{Duration, Instant};
 
 use futures::channel::mpsc::UnboundedSender;
 use gpui::{
-    App, Bounds, ClickEvent, Context, CursorStyle, DisplayId, FocusHandle, InteractiveElement,
-    KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit, Pixels,
-    Point, Render, ScrollDelta, ScrollWheelEvent, Size, Window, WindowBackgroundAppearance,
-    WindowBounds, WindowHandle, WindowOptions, div, hsla, img, point,
+    AnyElement, App, Bounds, ClickEvent, Context, CursorStyle, DisplayId, FocusHandle,
+    InteractiveElement, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
+    ObjectFit, Pixels, Point, Render, ScrollDelta, ScrollWheelEvent, Size, Window,
+    WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowOptions, div, hsla, img, point,
     prelude::*, px, size,
 };
 use log::debug;
@@ -817,7 +817,8 @@ impl Render for Pin {
             f32::from(self.natural.height) * self.zoom,
         );
         let styled = |el: gpui::Img| {
-            el.absolute()
+            let el = el
+                .absolute()
                 .left(self.pan.x)
                 .top(self.pan.y)
                 .w(px(img_w))
@@ -825,14 +826,63 @@ impl Render for Pin {
                 // The parent's overflow_hidden does not clip children to the
                 // rounded corners; round the image itself to match.
                 .rounded(px(self.radius))
-                .object_fit(ObjectFit::Contain)
-                // Per-element fade, not a group .opacity(): the group version
-                // multiplies each layer's alpha, so the image would blend over
-                // the semi-faded backdrop (bg between desktop and image reads
-                // as "backdrop still at 100%"). Same on macOS/Linux — it's
-                // core stacking math, not a Windows bug.
-                .opacity(self.opacity)
+                .object_fit(ObjectFit::Contain);
+            // Windows/macOS: per-element fade — their renderers multiply
+            // opacity per layer, so a group fade would blend the image into
+            // its own semi-faded backdrop (reads as "backdrop still at
+            // 100%"). Linux: none — the root's group .opacity() below fades
+            // the composited pin in one go (v0.1 behavior, owner-verified).
+            #[cfg(not(target_os = "linux"))]
+            let el = el.opacity(self.opacity);
+            el
         };
+        // Backdrop strips with a hole under the image (Windows/macOS only).
+        // The Wayland renderer group-fades the pin as one composited layer
+        // (image over full-alpha backdrop, the result x opacity), so Linux
+        // fades correctly with a plain full backdrop. The DirectX/macOS
+        // paths multiply opacity per element, which blends the image into
+        // its own semi-faded backdrop — reads as "backdrop still at 100%"
+        // (owner-tested) and letterboxed pins would darken the desktop for
+        // nothing. Four strips paint the complement of the image's visible
+        // rect; the root's rounded clip keeps the outer silhouette.
+        let mut strips: Vec<AnyElement> = Vec::new();
+        if self.bg && cfg!(not(target_os = "linux")) {
+            let (w, h) = (f32::from(self.size.width), f32::from(self.size.height));
+            // Visible image rect clamped to the window; None = cover all.
+            let mut hole = None;
+            if !matches!(&self.image, PinImage::Missing) {
+                let x0 = f32::from(self.pan.x).max(0.0);
+                let y0 = f32::from(self.pan.y).max(0.0);
+                let x1 = (f32::from(self.pan.x) + img_w).min(w);
+                let y1 = (f32::from(self.pan.y) + img_h).min(h);
+                if x1 > x0 && y1 > y0 {
+                    hole = Some((x0, y0, x1, y1));
+                }
+            }
+            let rects = match hole {
+                None => vec![(0.0, 0.0, w, h)],
+                Some((x0, y0, x1, y1)) => vec![
+                    (0.0, 0.0, w, y0),         // top
+                    (0.0, y1, w, h - y1),      // bottom
+                    (0.0, y0, x0, y1 - y0),    // left
+                    (x1, y0, w - x1, y1 - y0), // right
+                ],
+            };
+            strips = rects
+                .into_iter()
+                .filter(|&(x, y, sw, sh)| sw > 0.0 && sh > 0.0 && (sw < w || sh < h || x > 0.0 || y > 0.0))
+                .map(|(x, y, sw, sh)| {
+                    div()
+                        .absolute()
+                        .left(px(x))
+                        .top(px(y))
+                        .w(px(sw))
+                        .h(px(sh))
+                        .bg(hsla(220.0, 0.2, 0.10, 0.92 * self.opacity))
+                        .into_any_element()
+                })
+                .collect();
+        }
         // The parent's overflow_hidden does not clip children to the rounded
         // corners; the image is rounded itself above.
         let image = match &self.image {
@@ -866,6 +916,7 @@ impl Render for Pin {
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_up))
             .on_mouse_up(MouseButton::Middle, cx.listener(Self::on_up))
             .on_scroll_wheel(cx.listener(Self::on_scroll))
+            .children(strips)
             .child(image)
             .child(self.render_edge(Edge::Left, cx))
             .child(self.render_edge(Edge::Right, cx))
@@ -875,14 +926,22 @@ impl Render for Pin {
             .child(self.render_corner(Corner::TopRight, cx))
             .child(self.render_corner(Corner::BottomLeft, cx))
             .child(self.render_corner(Corner::BottomRight, cx));
-        // Backdrop/border only while the layer is on (`B` toggles). Applied
-        // to the finished builder so the invisible edge/corner hit strips
-        // above are unaffected.
+        // Chrome outline on every platform; Linux additionally keeps the
+        // exact v0.1 render (constant full backdrop + group fade — the
+        // Wayland renderer composites the pin once, then fades). See the
+        // strips note above. `B` toggles the layer off.
         if self.bg {
             root = root
-                .bg(hsla(220.0, 0.2, 0.10, 0.92 * self.opacity))
                 .border_1()
-                .border_color(hsla(0.0, 0.0, 1.0, 0.18 * self.opacity));
+                .border_color(hsla(0.0, 0.0, 1.0, 0.18));
+            #[cfg(target_os = "linux")]
+            {
+                root = root.bg(hsla(220.0, 0.2, 0.10, 0.92));
+            }
+        }
+        #[cfg(target_os = "linux")]
+        {
+            root = root.opacity(self.opacity);
         }
         root
     }

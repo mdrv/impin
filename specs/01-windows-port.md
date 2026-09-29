@@ -73,6 +73,10 @@ Windows deltas appear here. v0.2.0 = the **cross-platform release**
   top-resize band on titlebar-less resizable windows that hijacks our edge
   gestures); per-element opacity instead of group `.opacity()`; fork `.10`
   (DWMWA_COLOR_NONE) + `.11` (DWMNCRP_DISABLED) PopUp DWM-frame opt-out.
+- **Backdrop hole (Windows/macOS only)**: those renderers multiply opacity
+  per element, so the image blends into its own semi-faded backdrop; the
+  Wayland renderer group-fades, so Linux keeps the single full backdrop
+  (cfg-gated, pixel-identical to v0.1).
 
 ## Release & packaging
 
