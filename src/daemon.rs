@@ -15,7 +15,7 @@ use futures::StreamExt;
 use futures::channel::mpsc::{UnboundedSender, unbounded};
 use gpui::{App, AsyncApp, DisplayId, Pixels, QuitMode, Size, WindowHandle, point, px, size};
 use gpui_platform::application;
-use log::warn;
+use log::{info, warn};
 
 use crate::cli::socket_path;
 use crate::content::{self, PinImage};
@@ -70,6 +70,9 @@ struct PinsGlobal {
 impl gpui::Global for PinsGlobal {}
 
 pub fn run() -> anyhow::Result<()> {
+    // First line out: crashes during AppKit/XPC init (machine-level flakes,
+    // zero output before this existed) are at least attributable to a pid.
+    info!("daemon starting (pid {})", std::process::id());
     // Accessory before any window exists: no Dock icon, no menu bar.
     platform::accessory_mode();
     let sock = socket_path();
