@@ -6,6 +6,7 @@ use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 
+#[cfg(target_os = "windows")]
 use anyhow::Context as _;
 use clap::{CommandFactory, Parser, Subcommand};
 

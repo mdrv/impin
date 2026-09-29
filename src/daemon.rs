@@ -7,9 +7,13 @@ use std::io::{Read, Write};
 #[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use std::sync::atomic::{AtomicU64, Ordering};
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use futures::StreamExt;
 use futures::channel::mpsc::{UnboundedSender, unbounded};

@@ -691,8 +691,10 @@ pub(crate) fn install_toggle_hotkey(handler: Box<dyn Fn() + Send + Sync>) -> boo
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+// Linux: compositor-side binding instead (see README); kept for API parity.
+#[allow(dead_code)]
 pub(crate) fn install_toggle_hotkey(_handler: Box<dyn Fn() + Send + Sync>) -> bool {
-    false // compositor-side binding (see README)
+    false
 }
 
 // --- Hyprland helpers (Linux arm only) ---
